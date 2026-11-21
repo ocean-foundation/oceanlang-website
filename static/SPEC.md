@@ -1449,7 +1449,10 @@ discard the results.
 - **Simultaneous assignment** `a, b = e1, e2` evaluates all right-hand values
   first, then assigns: `x, y = y, x` swaps. `_` discards. A single multi-result
   call may supply all values. Counts must match.
-- Assignment is an expression whose value is the assigned value.
+- Assignment is an expression whose value is the stored value, with the
+  destination's type: with `x: varint(16)` and `y: varint(8)`, `z := (x = y)`
+  makes `z` a `varint(16)`. A bitfield destination yields its truncated value
+  (§6.7.1).
 - Replacing an owned value (array, dynamic array, string, map, struct with
   owned fields) copies the new value before releasing the old (self-assignment
   is safe).
