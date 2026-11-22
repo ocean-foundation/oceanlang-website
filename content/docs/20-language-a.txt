@@ -178,7 +178,7 @@ When none of the standard sizes fits, `varint(n)` gives you a signed integer of 
 If you use the same width in several places, give it a name with a defined type, such as `type Nibble varuint(4);`. As with any defined type, convert values in and out with casts: `15->Nibble` and `n->int`.
 ```code
 // check: run
-// expect: -8 0 2 true
+// expect: -8 0 2 340282366920938463463374607431768211455
 package main;
 
 import "io";
@@ -191,13 +191,17 @@ func main() {
     n := 15->Nibble;
     n++;                        // wraps to 0
     big: varuint(128) = 340282366920938463463374607431768211455;
-    io.Println(small->int, " ", n->int, " ", sizeof(varint(12)), " ", big == 340282366920938463463374607431768211455);
+    io.Println(small, n, sizeof(varint(12)), big);
 }
 ```
 @after
 Widths follow the same widening rules as the other integers. A value converts automatically to a type that can hold every value it might have, and anything narrower needs a cast, which keeps only the low bits. Storage is rounded up to whole bytes, which is why `varint(12)` takes 2 bytes. Integer literals keep their exact value even past 64 bits, so `big` above holds the largest 128-bit unsigned number.
 
-`io.Println` can't print these types directly yet. Cast to a standard type first, as in `small->int`. When calling C, an `extern` declaration can only use widths that C has: 8, 16, 32, or 64 bits. Values wider than 64 bits can't be passed to C at all, so cast them down to a size C understands. When you pass one of these integers to a variadic C function such as `printf`, Ocean widens it the way C expects: a `varint(6)` arrives as an `int`, and a `varint(40)` as a 64-bit `long long`.
+You can print these values directly. `io.Println`, `io.Sprint`, and the other `io` print and format functions write them as exact decimal numbers at any width, including values of a defined type like `Nibble` and values inside structs, arrays, and enums.
+
+In a type switch, write the full type with its width, as in `case varint(12):`. A bare `case varint:` is an error. A defined type matches only its own name, so a `Nibble` is caught by `case Nibble:` and not by `case varuint(4):`.
+
+When calling C, an `extern` declaration can only use widths that C has: 8, 16, 32, or 64 bits. Values wider than 64 bits can't be passed to C at all, so cast them down to a size C understands. When you pass one of these integers to a variadic C function such as `printf`, Ocean widens it the way C expects: a `varint(6)` arrives as an `int`, and a `varint(40)` as a 64-bit `long long`.
 
 --- floats | Mixing integers and floats
 Integer literals can be used wherever a float is expected, so `x: float = 2`, `measure(3)`, and `if (depth == 0)` all work with float values. In arithmetic and comparisons, an integer variable can also be combined with a float: `1.5 * n` produces a float. Arithmetic between two integers stays an integer, and integer division truncates toward zero, so `7 / 2` is `3` and `-7 / 2` is `-3`.

@@ -21,7 +21,7 @@ func main() {
 }
 ```
 @after
-Floats print with two decimal places by default. Use `io.FormatFloat(x)` for the full precision needed to read the value back exactly. Structs print as `{x: 1, y: 2}`, arrays as `[1 2 3]`, and enums as `Shape.Circle(1.50)`. Byte arrays (`[]i8`) print as numbers; cast them to `string` to print text. Maps cannot be printed directly yet.
+Floats print with two decimal places by default. Use `io.FormatFloat(x)` for the full precision needed to read the value back exactly. Integers of any width (`varint(n)` and `varuint(n)`) print as exact decimal numbers, even past 64 bits. Structs print as `{x: 1, y: 2}`, arrays as `[1 2 3]`, and enums as `Shape.Circle(1.50)`. Byte arrays (`[]i8`) print as numbers; cast them to `string` to print text. Maps cannot be printed directly yet.
 
 --- formatting | Formatting with placeholders
 `io.Printf` and `io.Printfln` take a format string in which each `{}` is replaced by the next argument, printed as `io.Print` would print it. `Printfln` adds a newline. To include a literal `{` before a `}`, escape it with a backslash, written `"\\{}"` in an Ocean string. There are no width or precision specifiers.

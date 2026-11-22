@@ -335,7 +335,7 @@ func main() {
 === library/reflect
 group: Standard library
 title: reflect
-desc: Inspect the fields of structs and the variants of enums at runtime.
+desc: Inspect struct fields, enum variants, and integers of any width at runtime.
 
 --- fields | Struct fields
 `reflect.Fields(value)` returns an array of `reflect.Field` values, one for each field of a struct, in declaration order. Each `Field` has a `Name` string and a `Value` of type `any`. Private fields are included. The values are independent copies: changing them does not affect the original. For anything that isn't a struct or enum, the array is empty, and pointers are not followed (pass `*pointer` to inspect what it points to).
@@ -360,4 +360,24 @@ func main() {
 --- enums | Enums
 `reflect.IsStruct(value)` and `reflect.IsEnum(value)` report what kind of value you have. `reflect.EnumVariant(value)` returns the variant's qualified name, such as `Event.Key`, or an empty string for a non-enum. For an enum, `Fields` returns the active variant's data: record fields with their names, tuple values with empty names.
 
-`io.Println` uses this package to print structs and enums.
+`io.Println` uses this package to print structs, enums, and integers of any width.
+
+--- variable-width-integers | Integers of any width
+`reflect.VarIntegerDecimal(value)` takes an `any` and returns the exact decimal text of a `varint(n)` or `varuint(n)`, with a leading `-` for negative values. Values of a defined type such as `type Nibble varuint(4);` work too. For anything else, including ordinary integers like `int` and pointers, it returns an empty string.
+```code
+// check: run
+// expect: -18446744073709551616
+// expect: 0
+package main;
+
+import "io";
+import "reflect";
+
+func main() {
+    value: varint(65) = -18446744073709551616;
+    io.Println(reflect.VarIntegerDecimal(value));
+    io.Println(len(reflect.VarIntegerDecimal(42)));    // an int: empty string
+}
+```
+@after
+You don't need it to print these integers, since the `io` functions call it for you. It is useful when you have an `any` and need to know whether it holds an integer of any width: a type switch can only test one width at a time, but a non-empty result here covers them all.

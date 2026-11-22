@@ -633,7 +633,16 @@ mask := 0xff->varuint(12);
   struct fields, including bitfields (§6.7.1).
 - **Boxing.** Boxing in `any` preserves the exact type, so `boxed.(varuint(128))`
   recovers it. Values wider than 64 bits are boxed in owned heap storage that is
-  copied with the box.
+  copied with the box. A type guard for a parameterized integer must name
+  an exact width, such as `case varuint(128):`.
+- **Reflection and formatting.** `reflect.VarIntegerDecimal(value any) string`
+  returns the exact base-10 representation of a boxed parameterized integer,
+  including a named type whose underlying type is parameterized. Zero is
+  rendered as `0`, and negative values have a leading `-`. The result is
+  empty for other inputs, including ordinary fixed-width integers and pointers.
+  The standard-library `io` print and format functions use this conversion
+  for parameterized integers, including those in reflected struct fields and
+  enum payloads.
 
 ### 6.3 Strings
 
@@ -1864,7 +1873,8 @@ executable. File paths are relative to the compiler's working directory.
 - Environment: `OCEAN_SRC` (standard library root), `OCEAN_MOD_CACHE`,
   `OCEAN_BUILD_CACHE` (path or `off`), `NO_COLOR`, `CLICOLOR_FORCE`.
 - Standard-library intrinsics (`reflect.Fields/IsStruct/IsEnum/EnumVariant`,
-  `threads.Spawn/Return`, `os.setArgs`) are recognized only when declared in
+  the private `reflect.varIntegerBytes` helper, `threads.Spawn/Return`,
+  `os.setArgs`) are recognized only when declared in
   the corresponding package located physically under the standard-library root;
   calls to the underlying `compilerReflect*`/`compilerThread*` names from any
   other code are errors.
@@ -1883,9 +1893,6 @@ executable. File paths are relative to the compiler's working directory.
 - Parameterized integers lower to LLVM `iN`. Very large widths can take
   substantial compile time and memory, and native code generation for them
   depends on the installed LLVM target.
-- The standard library's `io` formatting does not yet recognize `varint(n)` or
-  `varuint(n)` values: `io.Println` prints `[unknown type]` for them. Convert to
-  a fixed-width integer first (`io.Println(x->int)`).
 
 ---
 

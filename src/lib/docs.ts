@@ -317,9 +317,9 @@ export const docs: Doc[] = [
         "id": "exact-widths",
         "title": "Integers of any width",
         "text": "When none of the standard sizes fits, `varint(n)` gives you a signed integer of exactly `n` bits and `varuint(n)` an unsigned one. The width is a number written in the parentheses, anywhere from 1 up to 8,388,608 bits. A `varint(4)` holds -8 to 7, and a `varuint(4)` holds 0 to 15. Arithmetic wraps at that width, just as it does for the built-in sizes. `varint` and `varuint` are keywords, so you can't use either word as a name.\n\nIf you use the same width in several places, give it a name with a defined type, such as `type Nibble varuint(4);`. As with any defined type, convert values in and out with casts: `15->Nibble` and `n->int`.",
-        "code": "package main;\n\nimport \"io\";\n\ntype Nibble varuint(4);\n\nfunc main() {\n    small: varint(4) = 7;\n    small++;                    // past the top of the range: wraps to -8\n    n := 15->Nibble;\n    n++;                        // wraps to 0\n    big: varuint(128) = 340282366920938463463374607431768211455;\n    io.Println(small->int, \" \", n->int, \" \", sizeof(varint(12)), \" \", big == 340282366920938463463374607431768211455);\n}",
+        "code": "package main;\n\nimport \"io\";\n\ntype Nibble varuint(4);\n\nfunc main() {\n    small: varint(4) = 7;\n    small++;                    // past the top of the range: wraps to -8\n    n := 15->Nibble;\n    n++;                        // wraps to 0\n    big: varuint(128) = 340282366920938463463374607431768211455;\n    io.Println(small, n, sizeof(varint(12)), big);\n}",
         "note": "",
-        "after": "Widths follow the same widening rules as the other integers. A value converts automatically to a type that can hold every value it might have, and anything narrower needs a cast, which keeps only the low bits. Storage is rounded up to whole bytes, which is why `varint(12)` takes 2 bytes. Integer literals keep their exact value even past 64 bits, so `big` above holds the largest 128-bit unsigned number.\n\n`io.Println` can't print these types directly yet. Cast to a standard type first, as in `small->int`. When calling C, an `extern` declaration can only use widths that C has: 8, 16, 32, or 64 bits. Values wider than 64 bits can't be passed to C at all, so cast them down to a size C understands. When you pass one of these integers to a variadic C function such as `printf`, Ocean widens it the way C expects: a `varint(6)` arrives as an `int`, and a `varint(40)` as a 64-bit `long long`."
+        "after": "Widths follow the same widening rules as the other integers. A value converts automatically to a type that can hold every value it might have, and anything narrower needs a cast, which keeps only the low bits. Storage is rounded up to whole bytes, which is why `varint(12)` takes 2 bytes. Integer literals keep their exact value even past 64 bits, so `big` above holds the largest 128-bit unsigned number.\n\nYou can print these values directly. `io.Println`, `io.Sprint`, and the other `io` print and format functions write them as exact decimal numbers at any width, including values of a defined type like `Nibble` and values inside structs, arrays, and enums.\n\nIn a type switch, write the full type with its width, as in `case varint(12):`. A bare `case varint:` is an error. A defined type matches only its own name, so a `Nibble` is caught by `case Nibble:` and not by `case varuint(4):`.\n\nWhen calling C, an `extern` declaration can only use widths that C has: 8, 16, 32, or 64 bits. Values wider than 64 bits can't be passed to C at all, so cast them down to a size C understands. When you pass one of these integers to a variadic C function such as `printf`, Ocean widens it the way C expects: a `varint(6)` arrives as an `int`, and a `varint(40)` as a 64-bit `long long`."
       },
       {
         "id": "floats",
@@ -2011,7 +2011,7 @@ export const docs: Doc[] = [
         "text": "`io.Print` writes its arguments to standard output, and `io.Println` does the same and adds a newline. They accept any number of values of any type. A space is inserted between two neighboring arguments only when neither is a string, so `io.Println(1, 2)` prints `1 2`, while `io.Println(\"x=\", 1)` prints `x=1`. Include spaces in your strings where you want them.",
         "code": "package main;\n\nimport \"io\";\n\nfunc main() {\n    io.Println(1, 2, 3);\n    io.Println(\"total: \", 42);\n    io.Println(\"pi is about \", 3.14159);\n}",
         "note": "",
-        "after": "Floats print with two decimal places by default. Use `io.FormatFloat(x)` for the full precision needed to read the value back exactly. Structs print as `{x: 1, y: 2}`, arrays as `[1 2 3]`, and enums as `Shape.Circle(1.50)`. Byte arrays (`[]i8`) print as numbers; cast them to `string` to print text. Maps cannot be printed directly yet."
+        "after": "Floats print with two decimal places by default. Use `io.FormatFloat(x)` for the full precision needed to read the value back exactly. Integers of any width (`varint(n)` and `varuint(n)`) print as exact decimal numbers, even past 64 bits. Structs print as `{x: 1, y: 2}`, arrays as `[1 2 3]`, and enums as `Shape.Circle(1.50)`. Byte arrays (`[]i8`) print as numbers; cast them to `string` to print text. Maps cannot be printed directly yet."
       },
       {
         "id": "formatting",
@@ -2712,7 +2712,7 @@ export const docs: Doc[] = [
     "slug": "library/reflect",
     "group": "Standard library",
     "title": "reflect",
-    "description": "Inspect the fields of structs and the variants of enums at runtime.",
+    "description": "Inspect struct fields, enum variants, and integers of any width at runtime.",
     "sections": [
       {
         "id": "fields",
@@ -2724,9 +2724,17 @@ export const docs: Doc[] = [
       {
         "id": "enums",
         "title": "Enums",
-        "text": "`reflect.IsStruct(value)` and `reflect.IsEnum(value)` report what kind of value you have. `reflect.EnumVariant(value)` returns the variant's qualified name, such as `Event.Key`, or an empty string for a non-enum. For an enum, `Fields` returns the active variant's data: record fields with their names, tuple values with empty names.\n\n`io.Println` uses this package to print structs and enums.",
+        "text": "`reflect.IsStruct(value)` and `reflect.IsEnum(value)` report what kind of value you have. `reflect.EnumVariant(value)` returns the variant's qualified name, such as `Event.Key`, or an empty string for a non-enum. For an enum, `Fields` returns the active variant's data: record fields with their names, tuple values with empty names.\n\n`io.Println` uses this package to print structs, enums, and integers of any width.",
         "code": "",
         "note": ""
+      },
+      {
+        "id": "variable-width-integers",
+        "title": "Integers of any width",
+        "text": "`reflect.VarIntegerDecimal(value)` takes an `any` and returns the exact decimal text of a `varint(n)` or `varuint(n)`, with a leading `-` for negative values. Values of a defined type such as `type Nibble varuint(4);` work too. For anything else, including ordinary integers like `int` and pointers, it returns an empty string.",
+        "code": "package main;\n\nimport \"io\";\nimport \"reflect\";\n\nfunc main() {\n    value: varint(65) = -18446744073709551616;\n    io.Println(reflect.VarIntegerDecimal(value));\n    io.Println(len(reflect.VarIntegerDecimal(42)));    // an int: empty string\n}",
+        "note": "",
+        "after": "You don't need it to print these integers, since the `io` functions call it for you. It is useful when you have an `any` and need to know whether it holds an integer of any width: a type switch can only test one width at a time, but a non-empty result here covers them all."
       }
     ]
   },
