@@ -192,7 +192,7 @@ func main() {
 }
 ```
 @after
-`utf8.Encode(code)` returns a character's UTF-8 bytes as a string, and `utf8.Len(code)` the number of bytes it needs. `utf8.UTFMax` is the longest encoding, 4 bytes, and `utf8.MaxRune` the largest code point. `Valid(text)` checks that a whole string is well-formed UTF-8, `Count` counts its characters, `DecodeLast` reads the last character, and `Runes` and `FromRunes` convert between a string and an array of code points.
+`utf8.Encode(code)` returns a character's UTF-8 bytes as a string, and `utf8.Len(code)` the number of bytes it needs. `utf8.UTFMax` is the longest encoding, 4 bytes, and `utf8.MaxRune` the largest code point. `Valid(text)` checks that a whole string is well-formed UTF-8, `Count` counts its characters, `DecodeLast` reads the last character, and `Runes` and `FromRunes` convert between a string and an array of code points. Like every Ocean call, `Decode` copies the string you pass it, so for long text prefer `Runes`, `Count`, or `Valid`, which walk the string in a single call.
 
 === library/path
 group: Standard library
