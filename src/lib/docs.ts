@@ -724,15 +724,23 @@ export const docs: Doc[] = [
         "after": "Changes to `bytes` never affect `text`. Printing a byte array directly shows its numbers, such as `[72, 101, 108, 108, 111]`; cast it to `string` to print it as text."
       },
       {
-        "id": "no-strings-package",
+        "id": "common-tasks",
         "title": "Common string tasks",
-        "text": "There is no separate strings package yet. Tasks such as searching, splitting, and changing case are done with byte loops, slices, and dynamic arrays. For conversions between text and numbers, use the `io` package: `io.Sprint(value)` turns a number into text, while `io.ParseInt(text)` and `io.ParseFloat(text)` read numbers back and report failures as a `Result`.",
-        "code": "package main;\n\nimport \"io\";\n\nfunc split(text string, separator i8) []string {\n    parts := make([]string);\n    start := 0;\n    for (i, b := range text) {\n        if (b == separator) {\n            parts.append(text[start:i]);\n            start = i + 1;\n        }\n    }\n    parts.append(text[start:]);\n    return parts;\n}\n\nfunc main() {\n    io.Println(split(\"ocean,sea,wave\", ','));\n}",
+        "text": "The `strings` package searches, splits, joins, trims, and replaces text, and `strings.Builder` assembles long strings efficiently. `strconv` converts integers to and from text in any base, and `unicode/utf8` steps through the characters of a UTF-8 string. `io.Sprint(value)` turns any value into text, and `io.ParseInt(text)` and `io.ParseFloat(text)` read numbers back, reporting failures as a `Result`.",
+        "code": "package main;\n\nimport \"io\";\nimport \"strings\";\n\nfunc main() {\n    parts := strings.Split(\"ocean,sea,wave\", \",\");\n    io.Println(parts);\n    io.Println(strings.ToUpper(strings.Join(parts, \"-\")));\n}",
         "note": "",
         "links": [
           {
-            "label": "The io package",
-            "href": "/docs/library/io/"
+            "label": "The strings package",
+            "href": "/docs/library/strings/"
+          },
+          {
+            "label": "The strconv package",
+            "href": "/docs/library/strconv/"
+          },
+          {
+            "label": "The unicode and utf8 packages",
+            "href": "/docs/library/unicode/"
           }
         ]
       },
@@ -896,7 +904,7 @@ export const docs: Doc[] = [
       {
         "id": "iterate",
         "title": "Iterating",
-        "text": "A `range` loop over a map visits each key, or each key and value. The order is not specified and can differ from insertion order, so sort the keys yourself if order matters. The loop walks a snapshot, so modifying the map inside the loop does not disturb the iteration.",
+        "text": "A `range` loop over a map visits each key, or each key and value. The order is not specified and can differ from insertion order, so if order matters, collect the keys in an array and sort it with `sort.Strings` or `sort.Ints`. The loop walks a snapshot, so modifying the map inside the loop does not disturb the iteration.",
         "code": "package main;\n\nimport \"io\";\n\nfunc main() {\n    stock := map[string]int{\"rope\": 3, \"sail\": 1};\n    for (item, count := range stock) {\n        io.Printfln(\"{}: {}\", item, count);\n    }\n}",
         "note": ""
       },
@@ -1811,6 +1819,10 @@ export const docs: Doc[] = [
               "Register a function to run when the test and its subtests finish"
             ],
             [
+              "`Helper()`",
+              "Accepted for compatibility; it doesn't change how failures are reported yet"
+            ],
+            [
               "`Run(name, func(*testing.T)) bool`",
               "Run a subtest; returns whether it passed"
             ],
@@ -1993,7 +2005,7 @@ export const docs: Doc[] = [
       {
         "id": "library",
         "title": "The standard library on WebAssembly",
-        "text": "Much of the standard library talks to the operating system through native system calls, and those parts have no WebAssembly implementation yet: output from `io` does not work, and importing `threads`, `sync`, or `term/tui` fails to compile. `net/http` compiles, but needs a transport supplied by the host. `time.Monotonic` imports `env.ocean_time_monotonic_ns`, which must return monotonic nanoseconds as a 64-bit integer (a BigInt in JavaScript).\n\nUse files ending in `_wasm.oc` and `_native.oc` to provide different implementations for the two targets, and `asm wasm { … }` for WebAssembly-specific inline assembly.",
+        "text": "Much of the standard library talks to the operating system through native system calls, and those parts have no WebAssembly implementation yet: output from `io` does not work, and importing `threads`, `sync`, or `term/tui` fails to compile. `net/http` compiles, but needs a transport supplied by the host. `time.Monotonic` imports `env.ocean_time_monotonic_ns`, which must return monotonic nanoseconds as a 64-bit integer (a BigInt in JavaScript), and `time.Now` imports `env.ocean_time_now_ns`, which must return nanoseconds since 1970 in the same way. The `os` file-system and environment functions return errors, and `os/signal` reports no signals. Packages that only compute, such as `strings`, `strconv`, `sort`, `unicode`, `path`, `math`, and `encoding/json`, work as they do natively.\n\nUse files ending in `_wasm.oc` and `_native.oc` to provide different implementations for the two targets, and `asm wasm { … }` for WebAssembly-specific inline assembly.",
         "code": "",
         "note": ""
       }
@@ -2084,7 +2096,7 @@ export const docs: Doc[] = [
     "slug": "library/os",
     "group": "Standard library",
     "title": "os",
-    "description": "Open, read, and write files, access the standard streams, read command-line arguments, and exit.",
+    "description": "Open, read, and write files, manage directories and paths on disk, read environment variables and command-line arguments, and exit.",
     "sections": [
       {
         "id": "args-exit",
@@ -2174,6 +2186,10 @@ export const docs: Doc[] = [
               "`Result<array<i8>>`: the whole file, without moving the current position"
             ],
             [
+              "`PollRead()`",
+              "`Result<int>`: how many bytes can be read without waiting (0 if none yet); end of file also counts as ready"
+            ],
+            [
               "`Size()`",
               "`Result<int>`: the file's size in bytes"
             ],
@@ -2197,6 +2213,168 @@ export const docs: Doc[] = [
         "text": "`os.FromDescriptor(fd, readable, writable)` wraps an existing operating-system file descriptor as an `os.File`, and `file.NativeHandle()` returns the descriptor of an open file. These are for interoperating with C code.",
         "code": "",
         "note": ""
+      },
+      {
+        "id": "whole-files",
+        "title": "Reading and writing whole files",
+        "text": "`os.ReadFile(path)` returns a file's entire contents as a `Result<string>`, and `os.WriteFile(path, text)` creates or empties a file and writes the text, returning the number of bytes written. Both work on bytes, so they handle binary data too.",
+        "code": "package main;\n\nimport \"io\";\nimport \"os\";\nimport \"strings\";\n\nfunc main() {\n    os.WriteFile(\"todo.txt\", \"buy rope\\nmend sail\\n\").unwrap();\n    text := os.ReadFile(\"todo.txt\").unwrap();\n    io.Println(len(strings.Lines(text)), \" lines\");\n    os.Remove(\"todo.txt\").unwrap();\n}",
+        "note": ""
+      },
+      {
+        "id": "directories",
+        "title": "Files and directories",
+        "text": "These functions work with paths. Each returns a `Result`, and its error describes the operation, the path, and the reason given by the operating system, such as `os: mkdir data: File exists`.",
+        "code": "package main;\n\nimport \"io\";\nimport \"os\";\n\nfunc main() {\n    dir := os.MkdirTemp(\"example-\").unwrap();\n    defer os.RemoveAll(dir);\n    os.MkdirAll(dir + \"/data/raw\").unwrap();\n    os.WriteFile(dir + \"/data/b.txt\", \"\").unwrap();\n    os.WriteFile(dir + \"/data/a.txt\", \"\").unwrap();\n    files := []string{};\n    for (_, name := range os.ListDir(dir + \"/data\").unwrap()) {\n        if (!os.IsDir(dir + \"/data/\" + name)) files.append(name);\n    }\n    io.Println(files);\n}",
+        "note": "",
+        "after": "`RemoveAll` doesn't follow symbolic links: it removes a link itself, never what it points to. Combine these with the `path` package to build and take apart paths.",
+        "table": {
+          "headers": [
+            "Function",
+            "Effect"
+          ],
+          "rows": [
+            [
+              "`os.Mkdir(path)`, `os.MkdirAll(path)`",
+              "Create a directory; `MkdirAll` also creates missing parents and succeeds if the directory exists"
+            ],
+            [
+              "`os.ListDir(path)`",
+              "`Result<[]string>`: the names in a directory, sorted, without `.` and `..`"
+            ],
+            [
+              "`os.Remove(path)`",
+              "Delete a file, a symbolic link, or an empty directory"
+            ],
+            [
+              "`os.RemoveAll(path)`",
+              "Delete a path and everything inside it; a missing path is not an error"
+            ],
+            [
+              "`os.Rename(from, to)`",
+              "Move or rename, replacing an existing file at `to`"
+            ],
+            [
+              "`os.Chmod(path, mode)`",
+              "Set permission bits, such as `493` (octal 0755); on Windows only the write bit matters"
+            ],
+            [
+              "`os.Exists(path)`, `os.IsDir(path)`",
+              "`bool`: whether something exists at the path, and whether it is a directory"
+            ]
+          ]
+        }
+      },
+      {
+        "id": "file-info",
+        "title": "File information",
+        "text": "`os.Stat(path)` returns a `Result<os.FileInfo>` describing a file, following symbolic links; `os.Lstat(path)` describes a link itself. A `FileInfo` has the fields `Name` (the last path element), `Size` in bytes, `ModTime` (nanoseconds since 1970, like `time.Now()`), and `Mode`, the file's type and permission bits. The methods `IsDir()`, `IsRegular()`, `IsSymlink()`, and `Perm()` decode `Mode`; the constants `os.ModeDir`, `os.ModeRegular`, `os.ModeSymlink`, `os.ModeType`, and `os.ModePerm` are there if you need the bits.",
+        "code": "package main;\n\nimport \"io\";\nimport \"os\";\n\nfunc main() {\n    os.WriteFile(\"notes.txt\", \"hello\").unwrap();\n    info := os.Stat(\"notes.txt\").unwrap();\n    io.Println(info.Name, \" \", info.Size, \" \", info.IsRegular(), \" \", info.IsDir());\n    os.Remove(\"notes.txt\").unwrap();\n}",
+        "note": "",
+        "after": "On Windows, `ModTime` has whole-second precision, and permissions only record whether a file is read-only."
+      },
+      {
+        "id": "environment",
+        "title": "Environment variables",
+        "text": "`os.Getenv(name)` returns a variable's value, or an empty string if it isn't set. `os.LookupEnv(name)` also reports whether it is set, which tells an unset variable from an empty one. `os.Setenv(name, value)` and `os.Unsetenv(name)` change the environment of this process and of programs it starts later with `os/exec`.",
+        "code": "package main;\n\nimport \"io\";\nimport \"os\";\n\nfunc main() {\n    os.Setenv(\"OCEAN_COLOR\", \"blue\").unwrap();\n    color, set := os.LookupEnv(\"OCEAN_COLOR\");\n    io.Println(color, \" \", set);\n    os.Unsetenv(\"OCEAN_COLOR\").unwrap();\n    color, set = os.LookupEnv(\"OCEAN_COLOR\");\n    io.Println(color, \" \", set);\n}",
+        "note": "",
+        "after": "Variable names can't be empty or contain `=`. `os.Getpid()` returns the process ID."
+      },
+      {
+        "id": "process-paths",
+        "title": "Working directory, program, and temporary files",
+        "text": "",
+        "code": "",
+        "note": "",
+        "after": "`MkdirTemp` and `CreateTemp` return the path; open the file with `os.Open`, and remove what you created when you are done. On Windows, `Realpath` makes a path absolute and normalizes it, but doesn't resolve links.",
+        "table": {
+          "headers": [
+            "Function",
+            "Result"
+          ],
+          "rows": [
+            [
+              "`os.Getwd()`, `os.Chdir(path)`",
+              "Read or change the current working directory of the whole process"
+            ],
+            [
+              "`os.Realpath(path)`",
+              "`Result<string>`: the absolute path of an existing file, with symbolic links, `.`, and `..` resolved"
+            ],
+            [
+              "`os.Executable()`",
+              "`Result<string>`: the absolute path of the running program"
+            ],
+            [
+              "`os.TempDir()`",
+              "The directory for temporary files: `TMPDIR` if set, otherwise `/tmp`, or the Windows temporary directory"
+            ],
+            [
+              "`os.MkdirTemp(prefix)`",
+              "`Result<string>`: create a new private directory in `TempDir()` whose name starts with `prefix`"
+            ],
+            [
+              "`os.CreateTemp(prefix)`",
+              "`Result<string>`: create a new, empty, private file the same way"
+            ]
+          ]
+        }
+      },
+      {
+        "id": "platforms",
+        "title": "Platforms",
+        "text": "The file-system and environment functions work on Linux, macOS, and Windows, where paths may contain any Unicode characters. On WebAssembly they return errors, since there is no file system to talk to.",
+        "code": "",
+        "note": ""
+      },
+      {
+        "id": "target",
+        "title": "The target platform",
+        "text": "`os.OS()` returns `\"linux\"`, `\"macos\"`, `\"windows\"`, or `\"js\"` for WebAssembly, and `os.Arch()` returns `\"x86_64\"`, `\"aarch64\"`, `\"riscv64\"`, or `\"wasm\"`. Both describe the platform the program was compiled for and are fixed when it is built.",
+        "code": "package main;\n\nimport \"io\";\nimport \"os\";\n\nfunc main() {\n    io.Println(\"built for \", os.Arch(), \"-\", os.OS());\n    if (os.OS() == \"windows\") io.Println(\"executables end in \", os.ExeSuffix());\n}",
+        "note": "",
+        "after": "`os.ExeSuffix()` is `\".exe\"` on Windows and empty elsewhere, `os.PathSeparator()` is the preferred path separator (`\\` on Windows, `/` elsewhere), and `os.PathListSeparator()` separates entries in `PATH`-like variables (`;` on Windows, `:` elsewhere). Use inline assembly selectors such as `asm x86_64/linux { … }` when the difference between platforms is in the machine code itself."
+      },
+      {
+        "id": "windows",
+        "title": "Windows-only functions",
+        "text": "A few functions expose Windows behavior directly. They use Unicode paths, and on other platforms they return an error.",
+        "code": "",
+        "note": "",
+        "after": "For code that should work everywhere, prefer the portable functions above, which also run on Windows.",
+        "table": {
+          "headers": [
+            "Function",
+            "Result"
+          ],
+          "rows": [
+            [
+              "`os.WindowsKnownFolder(id)`",
+              "`Result<string>`: the path of a known folder, such as Documents, given its GUID with or without braces; follows folder redirection"
+            ],
+            [
+              "`os.WindowsLookupEnv(name)`",
+              "`Result<string>`: a Unicode environment variable; unset is an error, empty is a value"
+            ],
+            [
+              "`os.WindowsStat(path)`",
+              "`Result<os.WindowsPathInfo>`: `Exists` and `Directory`; a missing path sets `Exists` to false"
+            ],
+            [
+              "`os.WindowsMkdir(path)`",
+              "Create one directory under an existing parent"
+            ],
+            [
+              "`os.WindowsReadDir(path)`",
+              "`Result<[]os.WindowsDirEntry>`: each entry's `Name` and `Directory`, in file-system order"
+            ],
+            [
+              "`os.WindowsRename(from, to)`, `os.WindowsRemove(path)`",
+              "Move a file on the same volume (replacing the destination), or delete a file or empty directory"
+            ]
+          ]
+        }
       }
     ]
   },
@@ -2204,7 +2382,7 @@ export const docs: Doc[] = [
     "slug": "library/os/exec",
     "group": "Standard library",
     "title": "os/exec",
-    "description": "Run other programs, pass them arguments and environment variables, and capture their output.",
+    "description": "Run other programs, pass them arguments, input, and environment variables, capture their output, or run them in the background.",
     "sections": [
       {
         "id": "command",
@@ -2249,9 +2427,24 @@ export const docs: Doc[] = [
         "note": ""
       },
       {
+        "id": "stdin",
+        "title": "Standard input",
+        "text": "By default a command reads the parent's standard input. `command.SetStdin(text)` gives it that text instead, with end of file after it. The text is staged in a temporary file, so any amount can be passed without blocking.",
+        "code": "package main;\n\nimport \"io\";\nimport \"os/exec\";\n\nfunc main() {\n    command := exec.Command(\"tr\", \"a-z\", \"A-Z\");\n    command.SetStdin(\"hello\\n\");\n    io.Print(command.Output().unwrap());\n}",
+        "note": ""
+      },
+      {
+        "id": "background",
+        "title": "Running in the background",
+        "text": "`command.Start()` starts the program without waiting for it and returns a `Result<exec.Process>`. The program shares the parent's output streams. Call `Wait()` on the process to wait for it to finish; like `Run`, it returns an error when the program fails. `Poll()` reports whether it has finished without waiting, and `Kill()` ends it immediately.",
+        "code": "package main;\n\nimport \"io\";\nimport \"os/exec\";\nimport \"time\";\n\nfunc main() {\n    command := exec.Command(\"sleep\", \"10\");\n    process := command.Start().unwrap();\n    io.Println(\"started process \", process.Pid);\n    time.Sleep(100 * time.Millisecond);\n    if (!process.Poll().unwrap()) process.Kill().unwrap();\n    process.Wait();\n    io.Println(\"exit code \", process.ExitCode, \", signal \", process.Signal);\n}",
+        "note": "",
+        "after": "After the process finishes, `ExitCode` holds its exit status, or -1 if a signal ended it; `Signal` then holds the signal number (Linux and macOS only). Waiting again returns the same result. Always call `Wait` eventually, even after `Kill`, to release the process. Keep the `Process` in a variable and call its methods on that variable."
+      },
+      {
         "id": "limits",
         "title": "Limitations",
-        "text": "Output is collected in temporary files, so commands that produce a lot of output can't deadlock, but there is no size limit. There is no way yet to start a command and wait for it later, to connect pipes, to set a timeout, or to supply standard input. `os/exec` works on Linux, macOS, and Windows, but not on WebAssembly.",
+        "text": "Captured output is collected in temporary files, so commands that produce a lot of output can't deadlock, but there is no size limit. A started process can't have its output captured, and there are no pipes between processes or timeouts; use `Poll` and `Kill` to stop a command that runs too long. `os/exec` works on Linux, macOS, and Windows, but not on WebAssembly.",
         "code": "",
         "note": ""
       }
@@ -2325,21 +2518,21 @@ export const docs: Doc[] = [
       {
         "id": "cancel",
         "title": "Cancellation",
-        "text": "To cancel a request from another thread, create an `http.Cancellation`, attach it with `http.NewRequestWithCancel(&cancel, method, url, body)` or `request.WithCancel(&cancel)`, and call `cancel.Cancel()`. The request then fails with `http: request canceled`. Keep the cancellation value in one place (don't copy it) and alive until the request has finished. One cancellation can cancel several requests.",
+        "text": "To cancel a request from another thread, create an `http.Cancellation`, attach it with `http.NewRequestWithCancel(&cancel, method, url, body)` or `request.WithCancel(&cancel)`, and call `cancel.Cancel()`. The request then fails with `http: request canceled`. Keep the cancellation value in one place (don't copy it) and alive until the request has finished. One cancellation can cancel several requests, and `cancel.Canceled()` reports whether `Cancel` has been called.",
         "code": "",
         "note": ""
       },
       {
         "id": "tls",
         "title": "Security and limits",
-        "text": "HTTPS connections always verify the server's certificate and hostname and require TLS 1.2 or newer, using the system's trusted certificates. To trust a private certificate authority, set `client.TLSClientConfig.RootCAFile` to a PEM file. There is no option to turn verification off.\n\nRedirects are not followed, and proxies, cookies, compressed responses, IPv6 address literals in URLs, connection reuse, and HTTP servers are not supported yet. URL paths must already be percent-encoded.",
+        "text": "HTTPS connections always verify the server's certificate and hostname and require TLS 1.2 or newer, using the system's trusted certificates. To trust a private certificate authority, set `client.TLSClientConfig.RootCAFile` (an `http.TLSConfig`) to a PEM file. There is no option to turn verification off.\n\nRedirects are not followed, and proxies, cookies, compressed responses, IPv6 address literals in URLs, connection reuse, and HTTP servers are not supported yet. URL paths must already be percent-encoded.",
         "code": "",
         "note": ""
       },
       {
         "id": "requirements",
         "title": "Requirements",
-        "text": "The native implementation uses libcurl 7.68 or newer, built with TLS support. The installer's dependency bundle includes it; otherwise install your system's libcurl development package (such as `libcurl4-openssl-dev` on Debian and Ubuntu). The compiler links libcurl automatically for programs that import `net/http`.\n\nOn WebAssembly, the package compiles, but you must supply a transport by setting `client.Transport` to a value with a `RoundTrip(request Request) Result<Response>` method that performs the request through the host.",
+        "text": "The native implementation uses libcurl 7.68 or newer, built with TLS support. The installer's dependency bundle includes it; otherwise install your system's libcurl development package (such as `libcurl4-openssl-dev` on Debian and Ubuntu). The compiler links libcurl automatically for programs that import `net/http`.\n\nOn WebAssembly, the package compiles, but you must supply a transport by setting `client.Transport` to an `http.RoundTripper`: a value with a `RoundTrip(request Request) Result<Response>` method that performs the request through the host. A transport can be set on native targets too, for example to record requests in tests.",
         "code": "",
         "note": ""
       }
@@ -2495,7 +2688,7 @@ export const docs: Doc[] = [
         "text": "",
         "code": "",
         "note": "",
-        "after": "Any function of type `func() tui.Msg` is a command, so you can write your own that does slow work, such as reading a file, and returns a message describing the result. Each running command uses its own thread. When the program quits, unfinished commands are cancelled and waited for. `term/tui` needs native threads, so it is not available on WebAssembly.",
+        "after": "`tui.NoCmd` and `tui.Quit` return the messages `tui.NoneMsg{}` and `tui.QuitMsg{}`; returning those from your own commands has the same effect. Any function of type `func() tui.Msg` is a command, so you can write your own that does slow work, such as reading a file, and returns a message describing the result. Each running command uses its own thread. When the program quits, unfinished commands are cancelled and waited for. `term/tui` needs native threads, so it is not available on WebAssembly.",
         "table": {
           "headers": [
             "Command",
@@ -2589,7 +2782,7 @@ export const docs: Doc[] = [
     "slug": "library/time",
     "group": "Standard library",
     "title": "time",
-    "description": "Pause execution, measure elapsed time, and express durations in nanoseconds.",
+    "description": "Pause execution, measure elapsed time, read the wall clock, and express durations in nanoseconds.",
     "sections": [
       {
         "id": "durations",
@@ -2604,7 +2797,15 @@ export const docs: Doc[] = [
         "text": "`time.Sleep(duration)` pauses the calling thread for at least about that long; zero and negative durations return immediately. `time.Monotonic()` returns a reading from a clock that only moves forward, in nanoseconds. Its starting point is arbitrary, so it is only useful for measuring the time between two readings in the same program.",
         "code": "package main;\n\nimport \"io\";\nimport \"time\";\n\nfunc main() {\n    start := time.Monotonic();\n    time.Sleep(20 * time.Millisecond);\n    elapsed := time.Monotonic() - start;\n    io.Println(elapsed >= 20 * time.Millisecond);\n}",
         "note": "",
-        "after": "On Windows the monotonic clock has millisecond precision. There is no wall-clock (calendar date and time) support yet."
+        "after": "On Windows the monotonic clock has millisecond precision."
+      },
+      {
+        "id": "now",
+        "title": "The wall clock",
+        "text": "`time.Now()` returns the current date and time as nanoseconds since the start of 1970 in UTC (Unix time), the same scale as `os.FileInfo.ModTime`. Unlike `Monotonic`, it can jump forward or backward when the system clock is adjusted, so use it to timestamp events and `Monotonic` to measure durations.",
+        "code": "package main;\n\nimport \"io\";\nimport \"time\";\n\nfunc main() {\n    seconds := time.Now() / time.Second;\n    io.Println(seconds > 1700000000);   // some time after November 2023\n}",
+        "note": "",
+        "after": "There is no calendar support yet: converting to a date, a time zone, or a formatted string is up to you."
       }
     ]
   },
@@ -2739,6 +2940,265 @@ export const docs: Doc[] = [
     ]
   },
   {
+    "slug": "library/strings",
+    "group": "Standard library",
+    "title": "strings",
+    "description": "Search, split, join, trim, and replace text, and build strings efficiently with a Builder.",
+    "sections": [
+      {
+        "id": "overview",
+        "title": "Working with text",
+        "text": "The `strings` package has the everyday text functions. Strings are sequences of bytes, usually UTF-8, so every index and length here counts bytes, and a search returns the byte offset of the match, or -1 when there is none.",
+        "code": "package main;\n\nimport \"io\";\nimport \"strings\";\n\nfunc main() {\n    text := \"ocean,sea,wave\";\n    parts := strings.Split(text, \",\");\n    io.Println(strings.HasPrefix(text, \"ocean\"), \" \", strings.Index(text, \"sea\"), \" \", parts);\n    io.Println(strings.Join(parts, \", \"));\n    key, value, found := strings.Cut(\"key=value\", \"=\");\n    io.Println(key, \" \", value, \" \", found);\n}",
+        "note": ""
+      },
+      {
+        "id": "reference",
+        "title": "Functions",
+        "text": "",
+        "code": "",
+        "note": "",
+        "after": "`Split` with an empty separator splits the text into UTF-8 characters, and splitting an empty string gives one empty string. `SplitN` returns at most `limit` pieces, the last holding the rest of the text. `Fields` drops empty pieces, and `Lines` removes a `\\r` before each newline and doesn't produce a trailing empty line. `Cut` returns the text before and after the first separator and whether it was found.\n\n`Replace` replaces at most `limit` matches, or all of them when `limit` is negative. `ToLower`, `ToUpper`, `EqualFold`, `TrimSpace`, and `Fields` only understand ASCII; use the `unicode` package for other characters.",
+        "table": {
+          "headers": [
+            "Group",
+            "Functions"
+          ],
+          "rows": [
+            [
+              "Searching",
+              "`Contains`, `ContainsAny(text, chars)`, `ContainsByte`, `HasPrefix`, `HasSuffix`, `Index`, `LastIndex`, `IndexByte`, `LastIndexByte`, `IndexAny`, `Count`"
+            ],
+            [
+              "Splitting and joining",
+              "`Split(text, sep)`, `SplitN(text, sep, limit)`, `Fields` (split on whitespace), `Lines`, `Cut(text, sep)`, `Join(parts, sep)`"
+            ],
+            [
+              "Trimming",
+              "`TrimSpace`, `Trim(text, cutset)`, `TrimLeft`, `TrimRight`, `TrimPrefix`, `TrimSuffix`"
+            ],
+            [
+              "Changing",
+              "`Replace(text, old, new, limit)`, `ReplaceAll`, `Repeat`, `ToLower`, `ToUpper`"
+            ],
+            [
+              "Comparing",
+              "`EqualFold` (ignoring ASCII case), `Compare` (returns -1, 0, or 1), `IsSpace(byte)`"
+            ]
+          ]
+        }
+      },
+      {
+        "id": "builder",
+        "title": "Building strings",
+        "text": "Strings can't be changed, so adding to one in a loop copies it every time. A `strings.Builder` collects text in a growable buffer instead, and `String()` returns the result. The zero value is ready to use.",
+        "code": "package main;\n\nimport \"io\";\nimport \"strings\";\n\nfunc main() {\n    builder: strings.Builder;\n    for (i := 0; i < 4; i++) {\n        if (i > 0) builder.WriteString(\", \");\n        builder.WriteString(io.Sprint(i * i));\n    }\n    io.Println(builder.String(), \" (\", builder.Len(), \" bytes)\");\n}",
+        "note": "",
+        "after": "`WriteString`, `WriteByte`, `WriteRune(codePoint)`, and `WriteLine` (which adds a newline) append to the builder; `Len`, `Reset`, and `Truncate(n)` inspect or shorten it. Pass a builder to other functions as a pointer."
+      }
+    ]
+  },
+  {
+    "slug": "library/strconv",
+    "group": "Standard library",
+    "title": "strconv",
+    "description": "Convert integers to and from text in any base, parse booleans, and quote strings.",
+    "sections": [
+      {
+        "id": "integers",
+        "title": "Integers and text",
+        "text": "`strconv.Itoa(n)` formats an integer in base 10 and `strconv.Atoi(text)` parses one. `FormatInt(n, base)` and `FormatUint(n, base)` format in any base from 2 to 36, and `ParseInt(text, base)` and `ParseUint(text, base)` parse them. Parsing returns a `Result`: text that isn't a valid number in that base, or doesn't fit in 64 bits, is an error rather than a panic.",
+        "code": "package main;\n\nimport \"io\";\nimport \"strconv\";\n\nfunc main() {\n    io.Println(strconv.FormatInt(255, 16), \" \", strconv.FormatInt(255, 2), \" \", strconv.ParseInt(\"FF\", 16).unwrap());\n    io.Println(strconv.Atoi(\"12 apples\").error());\n}",
+        "note": "",
+        "after": "Parsing accepts an optional `+` or `-` (not for `ParseUint`) followed by digits; letters above 9 can be either case. Prefixes such as `0x`, digit separators, and spaces are rejected. An invalid base panics in the format functions and is an error in the parse functions. `ParseBool` accepts `true` and `false`, and `FormatBool` produces them."
+      },
+      {
+        "id": "quoting",
+        "title": "Quoting",
+        "text": "`strconv.Quote(text)` returns the text as a double-quoted Ocean string literal, with quotes, backslashes, and control characters escaped, which is handy for showing text with invisible characters. `strconv.Unquote(literal)` reverses it and accepts every escape Ocean string literals allow, including `\\u` and `\\U` escapes.",
+        "code": "package main;\n\nimport \"io\";\nimport \"strconv\";\n\nfunc main() {\n    io.Println(strconv.Quote(\"tab\\there\\n\"));\n}",
+        "note": ""
+      }
+    ]
+  },
+  {
+    "slug": "library/sort",
+    "group": "Standard library",
+    "title": "sort",
+    "description": "Sort dynamic arrays of numbers, strings, or any type, and search sorted data.",
+    "sections": [
+      {
+        "id": "sorting",
+        "title": "Sorting",
+        "text": "`sort.Ints`, `sort.Floats`, and `sort.Strings` sort a dynamic array in place, so pass a pointer to it. For any other element type, or a different order, `sort.Slice` takes a function that reports whether its first argument belongs before its second. Generic functions need their type argument written out, as in `sort.Slice<Person>`.",
+        "code": "package main;\n\nimport \"io\";\nimport \"sort\";\n\nstruct Person { name string; age int; }\n\nfunc main() {\n    numbers := []int{3, 1, 5, 2};\n    sort.Ints(&numbers);\n    io.Println(numbers);\n\n    people := []Person{{\"Ada\", 36}, {\"Lin\", 28}};\n    sort.Slice<Person>(&people, func(a Person, b Person) bool { return a.age < b.age; });\n    for (_, person := range people) io.Println(person.name, \" \", person.age);\n}",
+        "note": "",
+        "after": "The sort is stable: elements that compare equal keep their original order, so you can sort by one key and then by another. It takes O(n log n) time and uses a temporary copy of the array. Strings sort by byte value, so upper-case letters come before lower-case ones. `sort.IsSorted<T>(items, less)` checks an order, and `sort.Reverse<T>(&items)` reverses an array in place."
+      },
+      {
+        "id": "searching",
+        "title": "Searching",
+        "text": "`sort.SearchInts(items, value)` and `sort.SearchStrings(items, value)` find a value in a sorted array by binary search. They return its index, or the index where it would be inserted to keep the array sorted. For other searches, `sort.Search(n, found)` returns the first index from 0 to `n` for which `found(index)` is true, assuming it is false up to some point and true after it.",
+        "code": "package main;\n\nimport \"io\";\nimport \"sort\";\n\nfunc main() {\n    items := []int{10, 20, 30, 40};\n    io.Println(sort.SearchInts(items, 30), \" \", sort.SearchInts(items, 99));\n}",
+        "note": ""
+      }
+    ]
+  },
+  {
+    "slug": "library/unicode",
+    "group": "Standard library",
+    "title": "unicode and unicode/utf8",
+    "description": "Classify Unicode characters, change their case, and encode and decode UTF-8.",
+    "sections": [
+      {
+        "id": "properties",
+        "title": "Character properties",
+        "text": "The `unicode` package answers questions about a single character, given as its code point in an `int`. A character literal such as `'é'` is already a code point. The tables follow Unicode 16.0.",
+        "code": "",
+        "note": "",
+        "after": "`unicode.ToUpper(c)` and `unicode.ToLower(c)` change the case of one character, using one-to-one mappings: a character such as `ß`, whose upper-case form is two letters, is returned unchanged. `unicode.MaxRune` is the largest code point, U+10FFFF, and `unicode.ReplacementChar` is U+FFFD.",
+        "table": {
+          "headers": [
+            "Function",
+            "True for"
+          ],
+          "rows": [
+            [
+              "`IsLetter`",
+              "Letters in any script"
+            ],
+            [
+              "`IsUpper`, `IsLower`, `IsTitle`",
+              "Upper-, lower-, and title-case letters"
+            ],
+            [
+              "`IsDigit`",
+              "Decimal digits in any script"
+            ],
+            [
+              "`IsNumber`",
+              "Digits and other numbers, such as `½` and Roman numerals"
+            ],
+            [
+              "`IsSpace`",
+              "White space, including tabs, newlines, and the non-breaking space"
+            ],
+            [
+              "`IsPunct`, `IsSymbol`, `IsMark`, `IsControl`",
+              "Punctuation, symbols such as `+` and `€`, combining marks, and control characters"
+            ],
+            [
+              "`IsPrint`",
+              "Characters that print visibly, and the ASCII space"
+            ],
+            [
+              "`IsIdentStart`, `IsIdentContinue`",
+              "Characters that can begin or continue an Ocean identifier"
+            ]
+          ]
+        }
+      },
+      {
+        "id": "utf8",
+        "title": "UTF-8",
+        "text": "The `unicode/utf8` package converts between strings and code points. `utf8.Decode(text, offset)` reads the character starting at a byte offset and returns the code point and its length in bytes. Invalid bytes decode as `utf8.RuneError` (U+FFFD) with length 1, so a loop always makes progress.",
+        "code": "package main;\n\nimport \"io\";\nimport \"unicode/utf8\";\n\nfunc main() {\n    text := \"aé日😀\";\n    io.Println(utf8.Count(text), \" characters in \", len(text), \" bytes\");\n    for (i := 0; i < len(text);) {\n        code, width := utf8.Decode(text, i);\n        io.Println(utf8.Encode(code), \" \", width);\n        i += width;\n    }\n}",
+        "note": "",
+        "after": "`utf8.Encode(code)` returns a character's UTF-8 bytes as a string, and `utf8.Len(code)` the number of bytes it needs. `utf8.UTFMax` is the longest encoding, 4 bytes, and `utf8.MaxRune` the largest code point. `Valid(text)` checks that a whole string is well-formed UTF-8, `Count` counts its characters, `DecodeLast` reads the last character, and `Runes` and `FromRunes` convert between a string and an array of code points."
+      }
+    ]
+  },
+  {
+    "slug": "library/path",
+    "group": "Standard library",
+    "title": "path",
+    "description": "Join, split, clean, and compare file paths without touching the file system.",
+    "sections": [
+      {
+        "id": "functions",
+        "title": "Manipulating paths",
+        "text": "The `path` package works on file paths as text. It never looks at the file system, so the paths don't need to exist. Results always use `/` as the separator; on Windows, `\\` is accepted as well, and drive letters (`C:/`) and network shares (`//server/share`) are understood.",
+        "code": "package main;\n\nimport \"io\";\nimport \"path\";\n\nfunc main() {\n    file := path.Join(\"notes\", \"2024\", \"./drafts/../today.txt\");\n    io.Println(file);\n    io.Println(path.Base(file), \" \", path.Dir(file), \" \", path.Ext(file));\n    io.Println(path.Rel(\"project/docs\", \"project/src/main.oc\").unwrap());\n}",
+        "note": ""
+      },
+      {
+        "id": "reference",
+        "title": "Functions",
+        "text": "",
+        "code": "",
+        "note": "",
+        "after": "`Rel` needs both paths to be absolute, or both relative, and on the same drive; otherwise it returns an error. `Abs` and `Rel` don't resolve symbolic links; use `os.Realpath` to follow them.",
+        "table": {
+          "headers": [
+            "Function",
+            "Result"
+          ],
+          "rows": [
+            [
+              "`Join(parts...)`",
+              "The parts joined with `/` and cleaned; empty parts are skipped"
+            ],
+            [
+              "`Clean(path)`",
+              "The shortest equivalent path: repeated separators, `.` and resolvable `..` removed"
+            ],
+            [
+              "`Base(path)`, `Dir(path)`",
+              "The last element, and everything before it"
+            ],
+            [
+              "`Ext(path)`",
+              "The extension of the last element, from its final dot, such as `.gz`"
+            ],
+            [
+              "`Split(path)`",
+              "The directory part, including its final `/`, and the file name"
+            ],
+            [
+              "`IsAbs(path)`",
+              "Whether the path is absolute"
+            ],
+            [
+              "`Abs(path)`",
+              "`Result<string>`: the path made absolute using the current directory"
+            ],
+            [
+              "`Rel(base, target)`",
+              "`Result<string>`: a relative path that leads from `base` to `target`"
+            ],
+            [
+              "`ToSlash(path)`, `FromSlash(path)`",
+              "Convert between `/` and the native separator (only different on Windows)"
+            ]
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "slug": "library/os/signal",
+    "group": "Standard library",
+    "title": "os/signal",
+    "description": "Handle Ctrl+C and termination requests at a time of your program's choosing.",
+    "sections": [
+      {
+        "id": "blocking",
+        "title": "Collecting signals",
+        "text": "Normally, pressing Ctrl+C (`SIGINT`) or a termination request (`SIGTERM` or `SIGHUP`) ends a program immediately. After `signal.Block()`, those signals are held back instead, and the program collects them when it is ready: `signal.Pending()` returns the number of one that has arrived, or 0, and `signal.Wait(nanoseconds)` waits up to that long for one.",
+        "code": "package main;\n\nimport \"io\";\nimport \"os/signal\";\nimport \"time\";\n\nfunc main() {\n    signal.Block().unwrap();\n    io.Println(\"working; press Ctrl+C to stop\");\n    for (signal.Pending() == 0) {\n        time.Sleep(100 * time.Millisecond); // one step of work\n    }\n    io.Println(\"saving and exiting\");\n}",
+        "note": "",
+        "after": "`signal.Interrupt`, `signal.Terminate`, and `signal.Hangup` hold the three signal numbers, and `signal.Name(number)` returns names such as `SIGINT`. `signal.Unblock()` restores normal delivery; a signal still waiting then takes effect."
+      },
+      {
+        "id": "threads",
+        "title": "Threads and platforms",
+        "text": "Signals are blocked per thread, and threads you start afterwards inherit the setting. Call `Block` at the start of `main`, before starting any threads, so that no thread receives the signals directly. Signals sent to the process are then collected by whichever thread calls `Pending` or `Wait`.\n\n`os/signal` works on Linux and macOS. On Windows and WebAssembly there are no such signals: `Block` returns an error, and `Pending` and `Wait` return 0.",
+        "code": "",
+        "note": ""
+      }
+    ]
+  },
+  {
     "slug": "source",
     "group": "Contribute",
     "title": "Source code",
@@ -2867,7 +3327,7 @@ export const docs: Doc[] = [
       {
         "id": "layout",
         "title": "Layout",
-        "text": "Each directory in `ocean-src` is a package, imported by its path from the repository root: the `term/tui` directory is imported as `\"term/tui\"`. There is no build step: the compiler reads the library's source whenever a program imports it, so you edit `.oc` files and use them immediately.\n\nPackages whose implementation differs between native targets and WebAssembly use `_native.oc` and `_wasm.oc` files. Differences between operating systems and CPUs are handled with inline assembly blocks selected by architecture and platform, which is how `io`, `os`, `time`, and `term` make system calls without C dependencies.",
+        "text": "Each directory in `ocean-src` is a package, imported by its path from the repository root: the `term/tui` directory is imported as `\"term/tui\"`. There is no build step: the compiler reads the library's source whenever a program imports it, so you edit `.oc` files and use them immediately.\n\nPackages whose implementation differs between native targets and WebAssembly use `_native.oc` and `_wasm.oc` files. Differences between operating systems and CPUs are handled with inline assembly blocks selected by architecture and platform, which is how `io`, `os`, `time`, and `term` make system calls. Code that needs to know the target at run time calls `os.OS()` and `os.Arch()`.\n\nCalls into the C library and Win32, such as `stat` or `GetFileAttributesW`, go through `internal/native`, a private package of small assembly bridges for every target. Its `native.oc` is generated: add a function to the table in `internal/native/generate.py` and run `python3 internal/native/generate.py`. A bridge takes at most three arguments, and on targets that lack the function it returns -1. Likewise, `unicode/tables.oc` is generated by `unicode/generate_tables.py`.",
         "code": "",
         "note": ""
       },
@@ -2878,7 +3338,7 @@ export const docs: Doc[] = [
         "code": "export OCEAN_SRC=\"$PWD\"\nocean test ./... --notty\nocean test encoding/json io",
         "note": "",
         "lang": "Terminal",
-        "after": "The HTTP tests need permission to open local sockets; they don't contact outside servers. A few packages also have Python harnesses for behavior that needs a real terminal or several processes, in `term/tests`, `term/tui/tests`, `threads/tests`, `time/tests`, and similar directories. Set `OCEAN` to the compiler to use when running them."
+        "after": "The HTTP tests need permission to open local sockets; they don't contact outside servers. A few packages also have Python harnesses for behavior that needs a real terminal or several processes, in `term/tests`, `term/tui/tests`, `threads/tests`, `time/tests`, `os/signal/tests`, and similar directories. Set `OCEAN` to the compiler to use when running them."
       },
       {
         "id": "conventions",

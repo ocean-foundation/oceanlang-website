@@ -152,7 +152,7 @@ Command | Effect
 `tui.Sequence(commands...)` | Run commands one after another
 `tui.Read(file, count)`, `tui.Write(file, text)` | Read from or write to another file in the background
 @after
-Any function of type `func() tui.Msg` is a command, so you can write your own that does slow work, such as reading a file, and returns a message describing the result. Each running command uses its own thread. When the program quits, unfinished commands are cancelled and waited for. `term/tui` needs native threads, so it is not available on WebAssembly.
+`tui.NoCmd` and `tui.Quit` return the messages `tui.NoneMsg{}` and `tui.QuitMsg{}`; returning those from your own commands has the same effect. Any function of type `func() tui.Msg` is a command, so you can write your own that does slow work, such as reading a file, and returns a message describing the result. Each running command uses its own thread. When the program quits, unfinished commands are cancelled and waited for. `term/tui` needs native threads, so it is not available on WebAssembly.
 
 === library/math
 group: Standard library
@@ -192,7 +192,7 @@ The results are close approximations, not always correctly rounded. Trigonometri
 === library/time
 group: Standard library
 title: time
-desc: Pause execution, measure elapsed time, and express durations in nanoseconds.
+desc: Pause execution, measure elapsed time, read the wall clock, and express durations in nanoseconds.
 
 --- durations | Durations
 Durations in Ocean are `int` values counting nanoseconds. The package exports units to make them readable: `time.Nanosecond`, `time.Microsecond`, `time.Millisecond`, and `time.Second`. Multiply to build a duration, such as `250 * time.Millisecond`.
@@ -215,7 +215,25 @@ func main() {
 }
 ```
 @after
-On Windows the monotonic clock has millisecond precision. There is no wall-clock (calendar date and time) support yet.
+On Windows the monotonic clock has millisecond precision.
+
+--- now | The wall clock
+`time.Now()` returns the current date and time as nanoseconds since the start of 1970 in UTC (Unix time), the same scale as `os.FileInfo.ModTime`. Unlike `Monotonic`, it can jump forward or backward when the system clock is adjusted, so use it to timestamp events and `Monotonic` to measure durations.
+```code
+// check: run
+// expect: true
+package main;
+
+import "io";
+import "time";
+
+func main() {
+    seconds := time.Now() / time.Second;
+    io.Println(seconds > 1700000000);   // some time after November 2023
+}
+```
+@after
+There is no calendar support yet: converting to a date, a time zone, or a formatted string is up to you.
 
 === library/threads
 group: Standard library

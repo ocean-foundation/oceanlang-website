@@ -1,0 +1,267 @@
+=== library/strings
+group: Standard library
+title: strings
+desc: Search, split, join, trim, and replace text, and build strings efficiently with a Builder.
+
+--- overview | Working with text
+The `strings` package has the everyday text functions. Strings are sequences of bytes, usually UTF-8, so every index and length here counts bytes, and a search returns the byte offset of the match, or -1 when there is none.
+```code
+// check: run
+// expect: true 6 [ocean sea wave]
+// expect: ocean, sea, wave
+// expect: key value true
+package main;
+
+import "io";
+import "strings";
+
+func main() {
+    text := "ocean,sea,wave";
+    parts := strings.Split(text, ",");
+    io.Println(strings.HasPrefix(text, "ocean"), " ", strings.Index(text, "sea"), " ", parts);
+    io.Println(strings.Join(parts, ", "));
+    key, value, found := strings.Cut("key=value", "=");
+    io.Println(key, " ", value, " ", found);
+}
+```
+
+--- reference | Functions
+@table
+Group | Functions
+Searching | `Contains`, `ContainsAny(text, chars)`, `ContainsByte`, `HasPrefix`, `HasSuffix`, `Index`, `LastIndex`, `IndexByte`, `LastIndexByte`, `IndexAny`, `Count`
+Splitting and joining | `Split(text, sep)`, `SplitN(text, sep, limit)`, `Fields` (split on whitespace), `Lines`, `Cut(text, sep)`, `Join(parts, sep)`
+Trimming | `TrimSpace`, `Trim(text, cutset)`, `TrimLeft`, `TrimRight`, `TrimPrefix`, `TrimSuffix`
+Changing | `Replace(text, old, new, limit)`, `ReplaceAll`, `Repeat`, `ToLower`, `ToUpper`
+Comparing | `EqualFold` (ignoring ASCII case), `Compare` (returns -1, 0, or 1), `IsSpace(byte)`
+@after
+`Split` with an empty separator splits the text into UTF-8 characters, and splitting an empty string gives one empty string. `SplitN` returns at most `limit` pieces, the last holding the rest of the text. `Fields` drops empty pieces, and `Lines` removes a `\r` before each newline and doesn't produce a trailing empty line. `Cut` returns the text before and after the first separator and whether it was found.
+
+`Replace` replaces at most `limit` matches, or all of them when `limit` is negative. `ToLower`, `ToUpper`, `EqualFold`, `TrimSpace`, and `Fields` only understand ASCII; use the `unicode` package for other characters.
+
+--- builder | Building strings
+Strings can't be changed, so adding to one in a loop copies it every time. A `strings.Builder` collects text in a growable buffer instead, and `String()` returns the result. The zero value is ready to use.
+```code
+// check: run
+// expect: 0, 1, 4, 9 (10 bytes)
+package main;
+
+import "io";
+import "strings";
+
+func main() {
+    builder: strings.Builder;
+    for (i := 0; i < 4; i++) {
+        if (i > 0) builder.WriteString(", ");
+        builder.WriteString(io.Sprint(i * i));
+    }
+    io.Println(builder.String(), " (", builder.Len(), " bytes)");
+}
+```
+@after
+`WriteString`, `WriteByte`, `WriteRune(codePoint)`, and `WriteLine` (which adds a newline) append to the builder; `Len`, `Reset`, and `Truncate(n)` inspect or shorten it. Pass a builder to other functions as a pointer.
+
+=== library/strconv
+group: Standard library
+title: strconv
+desc: Convert integers to and from text in any base, parse booleans, and quote strings.
+
+--- integers | Integers and text
+`strconv.Itoa(n)` formats an integer in base 10 and `strconv.Atoi(text)` parses one. `FormatInt(n, base)` and `FormatUint(n, base)` format in any base from 2 to 36, and `ParseInt(text, base)` and `ParseUint(text, base)` parse them. Parsing returns a `Result`: text that isn't a valid number in that base, or doesn't fit in 64 bits, is an error rather than a panic.
+```code
+// check: run
+// expect: ff 11111111 255
+// expect: strconv: invalid syntax: "12 apples"
+package main;
+
+import "io";
+import "strconv";
+
+func main() {
+    io.Println(strconv.FormatInt(255, 16), " ", strconv.FormatInt(255, 2), " ", strconv.ParseInt("FF", 16).unwrap());
+    io.Println(strconv.Atoi("12 apples").error());
+}
+```
+@after
+Parsing accepts an optional `+` or `-` (not for `ParseUint`) followed by digits; letters above 9 can be either case. Prefixes such as `0x`, digit separators, and spaces are rejected. An invalid base panics in the format functions and is an error in the parse functions. `ParseBool` accepts `true` and `false`, and `FormatBool` produces them.
+
+--- quoting | Quoting
+`strconv.Quote(text)` returns the text as a double-quoted Ocean string literal, with quotes, backslashes, and control characters escaped, which is handy for showing text with invisible characters. `strconv.Unquote(literal)` reverses it and accepts every escape Ocean string literals allow, including `\u` and `\U` escapes.
+```code
+// check: run
+// expect: "tab\there\n"
+package main;
+
+import "io";
+import "strconv";
+
+func main() {
+    io.Println(strconv.Quote("tab\there\n"));
+}
+```
+
+=== library/sort
+group: Standard library
+title: sort
+desc: Sort dynamic arrays of numbers, strings, or any type, and search sorted data.
+
+--- sorting | Sorting
+`sort.Ints`, `sort.Floats`, and `sort.Strings` sort a dynamic array in place, so pass a pointer to it. For any other element type, or a different order, `sort.Slice` takes a function that reports whether its first argument belongs before its second. Generic functions need their type argument written out, as in `sort.Slice<Person>`.
+```code
+// check: run
+// expect: [1 2 3 5]
+// expect: Lin 28
+// expect: Ada 36
+package main;
+
+import "io";
+import "sort";
+
+struct Person { name string; age int; }
+
+func main() {
+    numbers := []int{3, 1, 5, 2};
+    sort.Ints(&numbers);
+    io.Println(numbers);
+
+    people := []Person{{"Ada", 36}, {"Lin", 28}};
+    sort.Slice<Person>(&people, func(a Person, b Person) bool { return a.age < b.age; });
+    for (_, person := range people) io.Println(person.name, " ", person.age);
+}
+```
+@after
+The sort is stable: elements that compare equal keep their original order, so you can sort by one key and then by another. It takes O(n log n) time and uses a temporary copy of the array. Strings sort by byte value, so upper-case letters come before lower-case ones. `sort.IsSorted<T>(items, less)` checks an order, and `sort.Reverse<T>(&items)` reverses an array in place.
+
+--- searching | Searching
+`sort.SearchInts(items, value)` and `sort.SearchStrings(items, value)` find a value in a sorted array by binary search. They return its index, or the index where it would be inserted to keep the array sorted. For other searches, `sort.Search(n, found)` returns the first index from 0 to `n` for which `found(index)` is true, assuming it is false up to some point and true after it.
+```code
+// check: run
+// expect: 2 4
+package main;
+
+import "io";
+import "sort";
+
+func main() {
+    items := []int{10, 20, 30, 40};
+    io.Println(sort.SearchInts(items, 30), " ", sort.SearchInts(items, 99));
+}
+```
+
+=== library/unicode
+group: Standard library
+title: unicode and unicode/utf8
+desc: Classify Unicode characters, change their case, and encode and decode UTF-8.
+
+--- properties | Character properties
+The `unicode` package answers questions about a single character, given as its code point in an `int`. A character literal such as `'é'` is already a code point. The tables follow Unicode 16.0.
+@table
+Function | True for
+`IsLetter` | Letters in any script
+`IsUpper`, `IsLower`, `IsTitle` | Upper-, lower-, and title-case letters
+`IsDigit` | Decimal digits in any script
+`IsNumber` | Digits and other numbers, such as `½` and Roman numerals
+`IsSpace` | White space, including tabs, newlines, and the non-breaking space
+`IsPunct`, `IsSymbol`, `IsMark`, `IsControl` | Punctuation, symbols such as `+` and `€`, combining marks, and control characters
+`IsPrint` | Characters that print visibly, and the ASCII space
+`IsIdentStart`, `IsIdentContinue` | Characters that can begin or continue an Ocean identifier
+@after
+`unicode.ToUpper(c)` and `unicode.ToLower(c)` change the case of one character, using one-to-one mappings: a character such as `ß`, whose upper-case form is two letters, is returned unchanged. `unicode.MaxRune` is the largest code point, U+10FFFF, and `unicode.ReplacementChar` is U+FFFD.
+
+--- utf8 | UTF-8
+The `unicode/utf8` package converts between strings and code points. `utf8.Decode(text, offset)` reads the character starting at a byte offset and returns the code point and its length in bytes. Invalid bytes decode as `utf8.RuneError` (U+FFFD) with length 1, so a loop always makes progress.
+```code
+// check: run
+// expect: 4 characters in 10 bytes
+// expect: a 1
+// expect: é 2
+// expect: 日 3
+// expect: 😀 4
+package main;
+
+import "io";
+import "unicode/utf8";
+
+func main() {
+    text := "aé日😀";
+    io.Println(utf8.Count(text), " characters in ", len(text), " bytes");
+    for (i := 0; i < len(text);) {
+        code, width := utf8.Decode(text, i);
+        io.Println(utf8.Encode(code), " ", width);
+        i += width;
+    }
+}
+```
+@after
+`utf8.Encode(code)` returns a character's UTF-8 bytes as a string, and `utf8.Len(code)` the number of bytes it needs. `utf8.UTFMax` is the longest encoding, 4 bytes, and `utf8.MaxRune` the largest code point. `Valid(text)` checks that a whole string is well-formed UTF-8, `Count` counts its characters, `DecodeLast` reads the last character, and `Runes` and `FromRunes` convert between a string and an array of code points.
+
+=== library/path
+group: Standard library
+title: path
+desc: Join, split, clean, and compare file paths without touching the file system.
+
+--- functions | Manipulating paths
+The `path` package works on file paths as text. It never looks at the file system, so the paths don't need to exist. Results always use `/` as the separator; on Windows, `\` is accepted as well, and drive letters (`C:/`) and network shares (`//server/share`) are understood.
+```code
+// check: run
+// expect: notes/2024/today.txt
+// expect: today.txt notes/2024 .txt
+// expect: ../src/main.oc
+package main;
+
+import "io";
+import "path";
+
+func main() {
+    file := path.Join("notes", "2024", "./drafts/../today.txt");
+    io.Println(file);
+    io.Println(path.Base(file), " ", path.Dir(file), " ", path.Ext(file));
+    io.Println(path.Rel("project/docs", "project/src/main.oc").unwrap());
+}
+```
+
+--- reference | Functions
+@table
+Function | Result
+`Join(parts...)` | The parts joined with `/` and cleaned; empty parts are skipped
+`Clean(path)` | The shortest equivalent path: repeated separators, `.` and resolvable `..` removed
+`Base(path)`, `Dir(path)` | The last element, and everything before it
+`Ext(path)` | The extension of the last element, from its final dot, such as `.gz`
+`Split(path)` | The directory part, including its final `/`, and the file name
+`IsAbs(path)` | Whether the path is absolute
+`Abs(path)` | `Result<string>`: the path made absolute using the current directory
+`Rel(base, target)` | `Result<string>`: a relative path that leads from `base` to `target`
+`ToSlash(path)`, `FromSlash(path)` | Convert between `/` and the native separator (only different on Windows)
+@after
+`Rel` needs both paths to be absolute, or both relative, and on the same drive; otherwise it returns an error. `Abs` and `Rel` don't resolve symbolic links; use `os.Realpath` to follow them.
+
+=== library/os/signal
+group: Standard library
+title: os/signal
+desc: Handle Ctrl+C and termination requests at a time of your program's choosing.
+
+--- blocking | Collecting signals
+Normally, pressing Ctrl+C (`SIGINT`) or a termination request (`SIGTERM` or `SIGHUP`) ends a program immediately. After `signal.Block()`, those signals are held back instead, and the program collects them when it is ready: `signal.Pending()` returns the number of one that has arrived, or 0, and `signal.Wait(nanoseconds)` waits up to that long for one.
+```code
+// check: skip
+package main;
+
+import "io";
+import "os/signal";
+import "time";
+
+func main() {
+    signal.Block().unwrap();
+    io.Println("working; press Ctrl+C to stop");
+    for (signal.Pending() == 0) {
+        time.Sleep(100 * time.Millisecond); // one step of work
+    }
+    io.Println("saving and exiting");
+}
+```
+@after
+`signal.Interrupt`, `signal.Terminate`, and `signal.Hangup` hold the three signal numbers, and `signal.Name(number)` returns names such as `SIGINT`. `signal.Unblock()` restores normal delivery; a signal still waiting then takes effect.
+
+--- threads | Threads and platforms
+Signals are blocked per thread, and threads you start afterwards inherit the setting. Call `Block` at the start of `main`, before starting any threads, so that no thread receives the signals directly. Signals sent to the process are then collected by whichever thread calls `Pending` or `Wait`.
+
+`os/signal` works on Linux and macOS. On Windows and WebAssembly there are no such signals: `Block` returns an error, and `Pending` and `Wait` return 0.

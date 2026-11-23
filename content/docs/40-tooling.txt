@@ -162,6 +162,7 @@ Method | Effect
 `Skip(values…)`, `Skipf(…)`, `SkipNow()` | Stop the test and report it as skipped
 `Failed()`, `Skipped()`, `Name()` | Query the test's state and full name
 `Cleanup(func())` | Register a function to run when the test and its subtests finish
+`Helper()` | Accepted for compatibility; it doesn't change how failures are reported yet
 `Run(name, func(*testing.T)) bool` | Run a subtest; returns whether it passed
 `Parallel()` | Let this test run in parallel with others
 @after
@@ -330,6 +331,6 @@ The output is a `wasm32-unknown-unknown` module. You need a Clang with the WebAs
 The module exports `main`. Functions it cannot resolve itself, such as memory allocation and other runtime support, are imported from the `env` module, and the JavaScript host must supply them. No JavaScript adapter is included. Ocean's integers remain 64-bit, while pointers are 32-bit.
 
 --- library | The standard library on WebAssembly
-Much of the standard library talks to the operating system through native system calls, and those parts have no WebAssembly implementation yet: output from `io` does not work, and importing `threads`, `sync`, or `term/tui` fails to compile. `net/http` compiles, but needs a transport supplied by the host. `time.Monotonic` imports `env.ocean_time_monotonic_ns`, which must return monotonic nanoseconds as a 64-bit integer (a BigInt in JavaScript).
+Much of the standard library talks to the operating system through native system calls, and those parts have no WebAssembly implementation yet: output from `io` does not work, and importing `threads`, `sync`, or `term/tui` fails to compile. `net/http` compiles, but needs a transport supplied by the host. `time.Monotonic` imports `env.ocean_time_monotonic_ns`, which must return monotonic nanoseconds as a 64-bit integer (a BigInt in JavaScript), and `time.Now` imports `env.ocean_time_now_ns`, which must return nanoseconds since 1970 in the same way. The `os` file-system and environment functions return errors, and `os/signal` reports no signals. Packages that only compute, such as `strings`, `strconv`, `sort`, `unicode`, `path`, `math`, and `encoding/json`, work as they do natively.
 
 Use files ending in `_wasm.oc` and `_native.oc` to provide different implementations for the two targets, and `asm wasm { … }` for WebAssembly-specific inline assembly.
