@@ -109,7 +109,7 @@ Number parsing and formatting are written in Ocean and don't depend on the C lib
 === library/os
 group: Standard library
 title: os
-desc: Open, read, and write files, access the standard streams, read command-line arguments, and exit.
+desc: Open, read, and write files, manage directories and paths on disk, read environment variables and command-line arguments, and exit.
 
 --- args-exit | Arguments and exit
 `os.Args()` returns the command-line arguments as an array of strings. The first element is the path of the program itself, so the arguments you typed start at index 1. `os.Exit(code)` ends the whole process immediately with the given status. It does not run deferred calls, so prefer returning from `main` when you can.
@@ -157,6 +157,7 @@ Method | Returns
 `Readchunk(n)` | `Result<[]i8>`: up to `n` bytes; empty at end of file
 `Readend()` | `Result<array<i8>>`: everything from the current position to the end
 `Readall()` | `Result<array<i8>>`: the whole file, without moving the current position
+`PollRead()` | `Result<int>`: how many bytes can be read without waiting (0 if none yet); end of file also counts as ready
 `Size()` | `Result<int>`: the file's size in bytes
 `Setpos(offset)` | Move to a byte offset, from 0 up to the size
 @after
@@ -188,10 +189,152 @@ func main() {
 --- descriptors | Native handles
 `os.FromDescriptor(fd, readable, writable)` wraps an existing operating-system file descriptor as an `os.File`, and `file.NativeHandle()` returns the descriptor of an open file. These are for interoperating with C code.
 
+--- whole-files | Reading and writing whole files
+`os.ReadFile(path)` returns a file's entire contents as a `Result<string>`, and `os.WriteFile(path, text)` creates or empties a file and writes the text, returning the number of bytes written. Both work on bytes, so they handle binary data too.
+```code
+// check: run
+// expect: 2 lines
+package main;
+
+import "io";
+import "os";
+import "strings";
+
+func main() {
+    os.WriteFile("todo.txt", "buy rope\nmend sail\n").unwrap();
+    text := os.ReadFile("todo.txt").unwrap();
+    io.Println(len(strings.Lines(text)), " lines");
+    os.Remove("todo.txt").unwrap();
+}
+```
+
+--- directories | Files and directories
+These functions work with paths. Each returns a `Result`, and its error describes the operation, the path, and the reason given by the operating system, such as `os: mkdir data: File exists`.
+@table
+Function | Effect
+`os.Mkdir(path)`, `os.MkdirAll(path)` | Create a directory; `MkdirAll` also creates missing parents and succeeds if the directory exists
+`os.ListDir(path)` | `Result<[]string>`: the names in a directory, sorted, without `.` and `..`
+`os.Remove(path)` | Delete a file, a symbolic link, or an empty directory
+`os.RemoveAll(path)` | Delete a path and everything inside it; a missing path is not an error
+`os.Rename(from, to)` | Move or rename, replacing an existing file at `to`
+`os.Chmod(path, mode)` | Set permission bits, such as `493` (octal 0755); on Windows only the write bit matters
+`os.Exists(path)`, `os.IsDir(path)` | `bool`: whether something exists at the path, and whether it is a directory
+```code
+// check: run
+// expect: [a.txt b.txt]
+package main;
+
+import "io";
+import "os";
+
+func main() {
+    dir := os.MkdirTemp("example-").unwrap();
+    defer os.RemoveAll(dir);
+    os.MkdirAll(dir + "/data/raw").unwrap();
+    os.WriteFile(dir + "/data/b.txt", "").unwrap();
+    os.WriteFile(dir + "/data/a.txt", "").unwrap();
+    files := []string{};
+    for (_, name := range os.ListDir(dir + "/data").unwrap()) {
+        if (!os.IsDir(dir + "/data/" + name)) files.append(name);
+    }
+    io.Println(files);
+}
+```
+@after
+`RemoveAll` doesn't follow symbolic links: it removes a link itself, never what it points to. Combine these with the `path` package to build and take apart paths.
+
+--- file-info | File information
+`os.Stat(path)` returns a `Result<os.FileInfo>` describing a file, following symbolic links; `os.Lstat(path)` describes a link itself. A `FileInfo` has the fields `Name` (the last path element), `Size` in bytes, `ModTime` (nanoseconds since 1970, like `time.Now()`), and `Mode`, the file's type and permission bits. The methods `IsDir()`, `IsRegular()`, `IsSymlink()`, and `Perm()` decode `Mode`; the constants `os.ModeDir`, `os.ModeRegular`, `os.ModeSymlink`, `os.ModeType`, and `os.ModePerm` are there if you need the bits.
+```code
+// check: run
+// expect: notes.txt 5 true false
+package main;
+
+import "io";
+import "os";
+
+func main() {
+    os.WriteFile("notes.txt", "hello").unwrap();
+    info := os.Stat("notes.txt").unwrap();
+    io.Println(info.Name, " ", info.Size, " ", info.IsRegular(), " ", info.IsDir());
+    os.Remove("notes.txt").unwrap();
+}
+```
+@after
+On Windows, `ModTime` has whole-second precision, and permissions only record whether a file is read-only.
+
+--- environment | Environment variables
+`os.Getenv(name)` returns a variable's value, or an empty string if it isn't set. `os.LookupEnv(name)` also reports whether it is set, which tells an unset variable from an empty one. `os.Setenv(name, value)` and `os.Unsetenv(name)` change the environment of this process and of programs it starts later with `os/exec`.
+```code
+// check: run
+// expect: blue true
+// expect:  false
+package main;
+
+import "io";
+import "os";
+
+func main() {
+    os.Setenv("OCEAN_COLOR", "blue").unwrap();
+    color, set := os.LookupEnv("OCEAN_COLOR");
+    io.Println(color, " ", set);
+    os.Unsetenv("OCEAN_COLOR").unwrap();
+    color, set = os.LookupEnv("OCEAN_COLOR");
+    io.Println(color, " ", set);
+}
+```
+@after
+Variable names can't be empty or contain `=`. `os.Getpid()` returns the process ID.
+
+--- process-paths | Working directory, program, and temporary files
+@table
+Function | Result
+`os.Getwd()`, `os.Chdir(path)` | Read or change the current working directory of the whole process
+`os.Realpath(path)` | `Result<string>`: the absolute path of an existing file, with symbolic links, `.`, and `..` resolved
+`os.Executable()` | `Result<string>`: the absolute path of the running program
+`os.TempDir()` | The directory for temporary files: `TMPDIR` if set, otherwise `/tmp`, or the Windows temporary directory
+`os.MkdirTemp(prefix)` | `Result<string>`: create a new private directory in `TempDir()` whose name starts with `prefix`
+`os.CreateTemp(prefix)` | `Result<string>`: create a new, empty, private file the same way
+@after
+`MkdirTemp` and `CreateTemp` return the path; open the file with `os.Open`, and remove what you created when you are done. On Windows, `Realpath` makes a path absolute and normalizes it, but doesn't resolve links.
+
+--- platforms | Platforms
+The file-system and environment functions work on Linux, macOS, and Windows, where paths may contain any Unicode characters. On WebAssembly they return errors, since there is no file system to talk to.
+
+--- target | The target platform
+`os.OS()` returns `"linux"`, `"macos"`, `"windows"`, or `"js"` for WebAssembly, and `os.Arch()` returns `"x86_64"`, `"aarch64"`, `"riscv64"`, or `"wasm"`. Both describe the platform the program was compiled for and are fixed when it is built.
+```code
+// check: run
+package main;
+
+import "io";
+import "os";
+
+func main() {
+    io.Println("built for ", os.Arch(), "-", os.OS());
+    if (os.OS() == "windows") io.Println("executables end in ", os.ExeSuffix());
+}
+```
+@after
+`os.ExeSuffix()` is `".exe"` on Windows and empty elsewhere, `os.PathSeparator()` is the preferred path separator (`\` on Windows, `/` elsewhere), and `os.PathListSeparator()` separates entries in `PATH`-like variables (`;` on Windows, `:` elsewhere). Use inline assembly selectors such as `asm x86_64/linux { … }` when the difference between platforms is in the machine code itself.
+
+--- windows | Windows-only functions
+A few functions expose Windows behavior directly. They use Unicode paths, and on other platforms they return an error.
+@table
+Function | Result
+`os.WindowsKnownFolder(id)` | `Result<string>`: the path of a known folder, such as Documents, given its GUID with or without braces; follows folder redirection
+`os.WindowsLookupEnv(name)` | `Result<string>`: a Unicode environment variable; unset is an error, empty is a value
+`os.WindowsStat(path)` | `Result<os.WindowsPathInfo>`: `Exists` and `Directory`; a missing path sets `Exists` to false
+`os.WindowsMkdir(path)` | Create one directory under an existing parent
+`os.WindowsReadDir(path)` | `Result<[]os.WindowsDirEntry>`: each entry's `Name` and `Directory`, in file-system order
+`os.WindowsRename(from, to)`, `os.WindowsRemove(path)` | Move a file on the same volume (replacing the destination), or delete a file or empty directory
+@after
+For code that should work everywhere, prefer the portable functions above, which also run on Windows.
+
 === library/os/exec
 group: Standard library
 title: os/exec
-desc: Run other programs, pass them arguments and environment variables, and capture their output.
+desc: Run other programs, pass them arguments, input, and environment variables, capture their output, or run them in the background.
 
 --- command | Running a command
 `exec.Command(name, args...)` describes a program to run. The arguments are passed to it directly; no shell is involved, so spaces and quotes in arguments need no escaping. The name is looked up on `PATH` unless it contains a path. Then run it in one of three ways:
@@ -236,8 +379,48 @@ func main() {
 --- lookpath | Finding programs
 `exec.LookPath(name)` returns the full path of the program that `name` would run, or an error if it isn't found.
 
+--- stdin | Standard input
+By default a command reads the parent's standard input. `command.SetStdin(text)` gives it that text instead, with end of file after it. The text is staged in a temporary file, so any amount can be passed without blocking.
+```code
+// check: run
+// expect: HELLO
+package main;
+
+import "io";
+import "os/exec";
+
+func main() {
+    command := exec.Command("tr", "a-z", "A-Z");
+    command.SetStdin("hello\n");
+    io.Print(command.Output().unwrap());
+}
+```
+
+--- background | Running in the background
+`command.Start()` starts the program without waiting for it and returns a `Result<exec.Process>`. The program shares the parent's output streams. Call `Wait()` on the process to wait for it to finish; like `Run`, it returns an error when the program fails. `Poll()` reports whether it has finished without waiting, and `Kill()` ends it immediately.
+```code
+// check: skip
+package main;
+
+import "io";
+import "os/exec";
+import "time";
+
+func main() {
+    command := exec.Command("sleep", "10");
+    process := command.Start().unwrap();
+    io.Println("started process ", process.Pid);
+    time.Sleep(100 * time.Millisecond);
+    if (!process.Poll().unwrap()) process.Kill().unwrap();
+    process.Wait();
+    io.Println("exit code ", process.ExitCode, ", signal ", process.Signal);
+}
+```
+@after
+After the process finishes, `ExitCode` holds its exit status, or -1 if a signal ended it; `Signal` then holds the signal number (Linux and macOS only). Waiting again returns the same result. Always call `Wait` eventually, even after `Kill`, to release the process. Keep the `Process` in a variable and call its methods on that variable.
+
 --- limits | Limitations
-Output is collected in temporary files, so commands that produce a lot of output can't deadlock, but there is no size limit. There is no way yet to start a command and wait for it later, to connect pipes, to set a timeout, or to supply standard input. `os/exec` works on Linux, macOS, and Windows, but not on WebAssembly.
+Captured output is collected in temporary files, so commands that produce a lot of output can't deadlock, but there is no size limit. A started process can't have its output captured, and there are no pipes between processes or timeouts; use `Poll` and `Kill` to stop a command that runs too long. `os/exec` works on Linux, macOS, and Windows, but not on WebAssembly.
 
 === library/encoding/json
 group: Standard library
@@ -342,14 +525,14 @@ func main() {
 `Header` is used for both requests and responses. `Set` replaces a header's value, `Add` appends another value, `Get` returns the first value (or an empty string), `Values` returns all of them, and `Del` removes the header. Names are case-insensitive. The client manages `Host`, `Connection`, `Content-Length`, and `Transfer-Encoding` itself, and setting them is an error.
 
 --- cancel | Cancellation
-To cancel a request from another thread, create an `http.Cancellation`, attach it with `http.NewRequestWithCancel(&cancel, method, url, body)` or `request.WithCancel(&cancel)`, and call `cancel.Cancel()`. The request then fails with `http: request canceled`. Keep the cancellation value in one place (don't copy it) and alive until the request has finished. One cancellation can cancel several requests.
+To cancel a request from another thread, create an `http.Cancellation`, attach it with `http.NewRequestWithCancel(&cancel, method, url, body)` or `request.WithCancel(&cancel)`, and call `cancel.Cancel()`. The request then fails with `http: request canceled`. Keep the cancellation value in one place (don't copy it) and alive until the request has finished. One cancellation can cancel several requests, and `cancel.Canceled()` reports whether `Cancel` has been called.
 
 --- tls | Security and limits
-HTTPS connections always verify the server's certificate and hostname and require TLS 1.2 or newer, using the system's trusted certificates. To trust a private certificate authority, set `client.TLSClientConfig.RootCAFile` to a PEM file. There is no option to turn verification off.
+HTTPS connections always verify the server's certificate and hostname and require TLS 1.2 or newer, using the system's trusted certificates. To trust a private certificate authority, set `client.TLSClientConfig.RootCAFile` (an `http.TLSConfig`) to a PEM file. There is no option to turn verification off.
 
 Redirects are not followed, and proxies, cookies, compressed responses, IPv6 address literals in URLs, connection reuse, and HTTP servers are not supported yet. URL paths must already be percent-encoded.
 
 --- requirements | Requirements
 The native implementation uses libcurl 7.68 or newer, built with TLS support. The installer's dependency bundle includes it; otherwise install your system's libcurl development package (such as `libcurl4-openssl-dev` on Debian and Ubuntu). The compiler links libcurl automatically for programs that import `net/http`.
 
-On WebAssembly, the package compiles, but you must supply a transport by setting `client.Transport` to a value with a `RoundTrip(request Request) Result<Response>` method that performs the request through the host.
+On WebAssembly, the package compiles, but you must supply a transport by setting `client.Transport` to an `http.RoundTripper`: a value with a `RoundTrip(request Request) Result<Response>` method that performs the request through the host. A transport can be set on native targets too, for example to record requests in tests.

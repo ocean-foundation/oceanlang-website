@@ -156,34 +156,27 @@ func main() {
 @after
 Changes to `bytes` never affect `text`. Printing a byte array directly shows its numbers, such as `[72, 101, 108, 108, 111]`; cast it to `string` to print it as text.
 
---- no-strings-package | Common string tasks
-There is no separate strings package yet. Tasks such as searching, splitting, and changing case are done with byte loops, slices, and dynamic arrays. For conversions between text and numbers, use the `io` package: `io.Sprint(value)` turns a number into text, while `io.ParseInt(text)` and `io.ParseFloat(text)` read numbers back and report failures as a `Result`.
+--- common-tasks | Common string tasks
+The `strings` package searches, splits, joins, trims, and replaces text, and `strings.Builder` assembles long strings efficiently. `strconv` converts integers to and from text in any base, and `unicode/utf8` steps through the characters of a UTF-8 string. `io.Sprint(value)` turns any value into text, and `io.ParseInt(text)` and `io.ParseFloat(text)` read numbers back, reporting failures as a `Result`.
 ```code
 // check: run
 // expect: [ocean sea wave]
+// expect: OCEAN-SEA-WAVE
 package main;
 
 import "io";
-
-func split(text string, separator i8) []string {
-    parts := make([]string);
-    start := 0;
-    for (i, b := range text) {
-        if (b == separator) {
-            parts.append(text[start:i]);
-            start = i + 1;
-        }
-    }
-    parts.append(text[start:]);
-    return parts;
-}
+import "strings";
 
 func main() {
-    io.Println(split("ocean,sea,wave", ','));
+    parts := strings.Split("ocean,sea,wave", ",");
+    io.Println(parts);
+    io.Println(strings.ToUpper(strings.Join(parts, "-")));
 }
 ```
 @links
-The io package -> /docs/library/io/
+The strings package -> /docs/library/strings/
+The strconv package -> /docs/library/strconv/
+The unicode and utf8 packages -> /docs/library/unicode/
 
 --- c-strings | Strings and C
 Ocean strings are not terminated by a zero byte. When you pass text to a C function, pass `text.data` (a raw pointer to the bytes) and add the terminator yourself, for example `"hello\0".data`. The C interop page covers this in detail.
@@ -386,7 +379,7 @@ func main() {
 ```
 
 --- iterate | Iterating
-A `range` loop over a map visits each key, or each key and value. The order is not specified and can differ from insertion order, so sort the keys yourself if order matters. The loop walks a snapshot, so modifying the map inside the loop does not disturb the iteration.
+A `range` loop over a map visits each key, or each key and value. The order is not specified and can differ from insertion order, so if order matters, collect the keys in an array and sort it with `sort.Strings` or `sort.Ints`. The loop walks a snapshot, so modifying the map inside the loop does not disturb the iteration.
 ```code
 package main;
 
