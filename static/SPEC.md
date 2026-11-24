@@ -1851,7 +1851,8 @@ executable. File paths are relative to the compiler's working directory.
 - `ocean build [--check|--emit-llvm|--static|-s] [-o out] [location]`,
   `ocean run [-s] location [args…] [-- literal args]`, `ocean check [location]`,
   `ocean check --lsp`, `ocean test [locations…]`, `ocean mod init [name]`,
-  `ocean clean --cache`, `ocean fix [locations…]`, `ocean -v|--version`.
+  `ocean clean --cache`, `ocean fix [locations…]`, `ocean -v|--version`,
+  `ocean target --list`, `ocean target [--remove] <target>...`.
 - `ocean fix` rewrites the removed postfix type syntax to prefix syntax in place.
   A location is a package directory, an Ocean file (its directory), or `dir/...`
   (every directory below `dir` containing `.oc` files, skipping hidden
@@ -1873,6 +1874,12 @@ executable. File paths are relative to the compiler's working directory.
   `riscv64`. macOS and Windows support `x86_64` and `aarch64`.
   `OCOS=js OCARCH=wasm` selects `wasm32-unknown-unknown`.
   `run` and `test` require the host target.
+- `ocean target --list` prints the target names and their `OCOS` and `OCARCH`
+  values. `ocean target <target>...` installs toolchain components for the
+  named targets. `ocean target --remove <target>...` removes those targets.
+  Builds use the installed components when the target is selected explicitly.
+  `OCEAN_TARGET_DIR` overrides the per-user installation directory. macOS targets
+  use the Apple SDK on a macOS host.
 - Cross-target `build --emit-llvm` emits program IR without the runtime.
   Building and checking a binary require Clang, a linker, and any headers
   and libraries for the target. `OCEAN_CLANG` selects the Clang executable

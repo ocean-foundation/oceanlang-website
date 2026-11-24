@@ -11,6 +11,8 @@ Command | What it does
 `ocean run [location] [args…]` | Build a temporary executable, run it with the given arguments, then delete it
 `ocean build [location]` | Build an executable (for a `main` package) or a library object
 `ocean test [locations…]` | Build and run a package's tests
+`ocean target --list` | List compilation targets and their environment values
+`ocean target [--remove] <target>…` | Install or remove target toolchain components
 `ocean mod init [name]` | Create `ocean.mod` in the current directory
 `ocean fix [locations…]` | Rewrite old postfix type syntax to the current prefix syntax, in place
 `ocean clean --cache` | Delete the build cache
@@ -42,7 +44,7 @@ Option | Effect
 @after
 Static linking needs static versions of the system libraries (and of libffi or libcurl if your program uses them) to be installed; otherwise the link fails. It only applies to `main` packages.
 
-On Windows, library objects are COFF archives, and building one requires `llvm-ar` on your `PATH`.
+On Windows, library objects are COFF archives. Ocean uses its managed `llvm-ar` for an installed target or looks for `llvm-ar` on `PATH`.
 
 --- fix | ocean fix
 Ocean writes type modifiers before the type they modify: `[]int`, `[3]int`, `*T`, and `buffer<int, 4>`. Earlier versions put them after the type (`int[]`, `int[3]`, `T*`, `buffer<int>[4]`). That syntax is now an error, and the message names the replacement, such as "Square brackets go before the type for an array. Did you mean '[]int'?".
@@ -71,11 +73,25 @@ Variable | Purpose
 `OCOS`, `OCARCH` | Select the target OS and architecture. Set both together.
 `OCEAN_CLANG` | Path to a Clang executable or toolchain wrapper
 `OCEAN_SYSROOT` | Optional sysroot containing native target headers and libraries
+`OCEAN_TARGET_DIR` | Absolute path to the managed toolchain directory
 `NO_COLOR`, `CLICOLOR_FORCE` | Turn colored diagnostics off or force them on
 `SOURCE_DATE_EPOCH` | Fix the build timestamp when building the compiler reproducibly
 
 --- toolchain | What the compiler needs
-The compiler emits LLVM IR as text and runs Clang to compile and link it. Put Clang on `PATH` or set `OCEAN_CLANG` to its executable. Programs need libffi for C variadic calls and libcurl for native `net/http`. Ocean links the threading runtime when the program uses threads.
+The compiler emits LLVM IR as text and runs Clang to compile and link it. For a host build, put Clang on `PATH` or set `OCEAN_CLANG` to its executable. Programs need libffi for C variadic calls with runtime arguments and libcurl for native `net/http`. Ocean links the threading runtime when the program uses threads.
+
+--- targets | Install and remove targets
+Run `ocean target --list` to see each target name and its `OCOS` and `OCARCH` values. Pass one or more names to install them. Ocean reuses components already installed. Pass `--remove` followed by one or more names to remove the selected targets.
+```code Terminal
+ocean target --list
+ocean target x86_64-windows riscv64-linux wasm-js
+OCOS=windows OCARCH=x86_64 ocean build -o app.exe .
+ocean target --remove x86_64-windows riscv64-linux
+```
+@after
+The installer uses `curl`, `tar`, and the system SHA-256 tool to download and check versioned bundles. Linux and Windows targets include development libraries for libffi and libcurl. Dynamically linked programs still need their runtime libraries on the target machine. Installing macOS targets uses the Apple SDK on a Mac. Run `xcode-select --install` if the SDK is missing.
+
+Toolchains are stored in `~/.ocean/targets` on Linux and macOS and `%LOCALAPPDATA%/Ocean/targets` on Windows. Set `OCEAN_TARGET_DIR` to an absolute path to use a different directory. Removing a target leaves the shared host Clang and linker cache available for other targets.
 
 --- cross-compilation | Cross-compilation
 Ocean builds for the host by default. Set both `OCOS` and `OCARCH` to select a target for `ocean build` or `ocean check`. Running programs with `ocean run` or `ocean test` requires the host target.
@@ -89,9 +105,9 @@ OCOS | OCARCH
 OCOS=linux OCARCH=aarch64 ocean build -o app .
 ```
 @after
-Use `ocean build --emit-llvm` to emit program LLVM IR for another target without its runtime or toolchain. Building and checking binaries require the matching toolchain. Use `OCEAN_CLANG` to select a Clang executable or wrapper configured with the target linker flags, and `OCEAN_SYSROOT` to point to a separate native target sysroot.
+Use `ocean build --emit-llvm` to emit program LLVM IR for another target without its runtime or toolchain. Building and checking binaries use the installed toolchain for the selected target. To configure the toolchain yourself, set `OCEAN_CLANG` to a Clang executable or wrapper, or set `OCEAN_SYSROOT` to a separate native target sysroot. Either setting takes precedence over the managed toolchain.
 @table
-Target | Toolchain requirements
+Target | Manual toolchain requirements
 Linux | Target libc headers, startup objects, compiler runtime libraries and a compatible linker. A matching Linux cross GCC toolchain can supply these files.
 macOS | macOS SDK and a Mach-O linker. On macOS, run `xcode-select --install` to install the Command Line Tools.
 Windows | A matching MinGW-w64 toolchain such as LLVM-MinGW, plus `llvm-ar` on PATH for package libraries.
@@ -349,7 +365,7 @@ Set the environment variables `OCOS=js` and `OCARCH=wasm` to compile for WebAsse
 OCOS=js OCARCH=wasm ocean build . -o main.wasm
 ```
 @after
-The output is a `wasm32-unknown-unknown` module. You need a Clang with the WebAssembly target and `wasm-ld`; Clang and LLD version 23 are recommended. Load the module in a WebAssembly host to run it.
+The output is a `wasm32-unknown-unknown` module. Run `ocean target wasm-js` to install the WebAssembly toolchain, which uses Clang and `wasm-ld`. Load the module in a WebAssembly host to run it.
 
 --- host | What the host provides
 The module exports `main`. Functions it cannot resolve itself, such as memory allocation and other runtime support, are imported from the `env` module, and the JavaScript host must supply them. No JavaScript adapter is included. Ocean's integers remain 64-bit, while pointers are 32-bit.
