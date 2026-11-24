@@ -410,8 +410,8 @@ Remaining statement grammars are given in §10.
 - **File selection** (before parsing):
   - Files ending `_test.oc` are excluded from ordinary builds (§14).
   - Files whose base name (before `.oc` or `_test.oc`) ends in `_native` are used
-    only for native targets; `_wasm` only when `OCARCH=wasm`. All other files are
-    always used.
+    only for native targets and `_wasm` only for `OCOS=js OCARCH=wasm`. All other
+    files are always used.
   - Only regular files are read.
 - Files are processed in byte-wise lexicographic order of path.
 - Package-level declarations (functions, types, structs, enums, interfaces,
@@ -1868,10 +1868,18 @@ executable. File paths are relative to the compiler's working directory.
   parameter; others are left for the type checker to report. Each changed file
   is reported as `ocean fix: <path>: <n> types rewritten`. Files are replaced
   atomically; the exit status is nonzero if a file cannot be read or written.
-- Default target is the host (Linux/macOS/Windows; x86-64, AArch64, RISC-V64).
+- The default target is the host. Set both `OCOS` and `OCARCH` to select a
+  target for `build` or `check`. Linux supports `x86_64`, `aarch64` and
+  `riscv64`. macOS and Windows support `x86_64` and `aarch64`.
   `OCOS=js OCARCH=wasm` selects `wasm32-unknown-unknown`.
-- Environment: `OCEAN_SRC` (standard library root), `OCEAN_MOD_CACHE`,
-  `OCEAN_BUILD_CACHE` (path or `off`), `NO_COLOR`, `CLICOLOR_FORCE`.
+  `run` and `test` require the host target.
+- Cross-target `build --emit-llvm` emits program IR without the runtime.
+  Building and checking a binary require Clang, a linker, and any headers
+  and libraries for the target. `OCEAN_CLANG` selects the Clang executable
+  and `OCEAN_SYSROOT` sets an optional native target sysroot.
+- Other environment variables include `OCEAN_SRC` (standard library root),
+  `OCEAN_MOD_CACHE`, `OCEAN_BUILD_CACHE` (path or `off`), `NO_COLOR` and
+  `CLICOLOR_FORCE`.
 - Standard-library intrinsics (`reflect.Fields/IsStruct/IsEnum/EnumVariant`,
   the private `reflect.varIntegerBytes` helper, `threads.Spawn/Return`,
   `os.setArgs`) are recognized only when declared in

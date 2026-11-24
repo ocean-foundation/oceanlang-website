@@ -1695,7 +1695,15 @@ export const docs: Doc[] = [
             ],
             [
               "`OCOS`, `OCARCH`",
-              "Set both to `js` and `wasm` to target WebAssembly"
+              "Select the target OS and architecture. Set both together."
+            ],
+            [
+              "`OCEAN_CLANG`",
+              "Path to a Clang executable or toolchain wrapper"
+            ],
+            [
+              "`OCEAN_SYSROOT`",
+              "Optional sysroot containing native target headers and libraries"
             ],
             [
               "`NO_COLOR`, `CLICOLOR_FORCE`",
@@ -1711,9 +1719,62 @@ export const docs: Doc[] = [
       {
         "id": "toolchain",
         "title": "What the compiler needs",
-        "text": "The compiler emits LLVM IR as text and runs Clang to compile and link it, so Clang must be on your `PATH` for `check`, `build`, `run`, and `test`. Programs are linked with libffi when they need it (for example, for C variadic calls). Programs that import `net/http` also need libcurl. Programs that use threads are linked with the threading runtime automatically.",
+        "text": "The compiler emits LLVM IR as text and runs Clang to compile and link it. Put Clang on `PATH` or set `OCEAN_CLANG` to its executable. Programs need libffi for C variadic calls and libcurl for native `net/http`. Ocean links the threading runtime when the program uses threads.",
         "code": "",
         "note": ""
+      },
+      {
+        "id": "cross-compilation",
+        "title": "Cross-compilation",
+        "text": "Ocean builds for the host by default. Set both `OCOS` and `OCARCH` to select a target for `ocean build` or `ocean check`. Running programs with `ocean run` or `ocean test` requires the host target.",
+        "code": "OCOS=linux OCARCH=aarch64 ocean build -o app .",
+        "note": "",
+        "lang": "Terminal",
+        "after": "Use `ocean build --emit-llvm` to emit program LLVM IR for another target without its runtime or toolchain. Building and checking binaries require the matching toolchain. Use `OCEAN_CLANG` to select a Clang executable or wrapper configured with the target linker flags, and `OCEAN_SYSROOT` to point to a separate native target sysroot. Install target libffi or libcurl development packages when the program uses them. To use target pkg-config metadata, set `PKG_CONFIG_LIBDIR` to the target's metadata directories and keep `PKG_CONFIG_PATH` free of host entries. Set `PKG_CONFIG_SYSROOT_DIR` if the metadata paths are relative to a separate sysroot.",
+        "table": {
+          "headers": [
+            "OCOS",
+            "OCARCH"
+          ],
+          "rows": [
+            [
+              "`linux`",
+              "`x86_64`, `aarch64`, `riscv64`"
+            ],
+            [
+              "`macos`",
+              "`x86_64`, `aarch64`"
+            ],
+            [
+              "`windows`",
+              "`x86_64`, `aarch64`"
+            ],
+            [
+              "`js`",
+              "`wasm`"
+            ],
+            [
+              "Target",
+              "Toolchain requirements"
+            ],
+            [
+              "Linux",
+              "Target libc headers, startup objects, compiler runtime libraries and a compatible linker. A matching Linux cross GCC toolchain can supply these files."
+            ],
+            [
+              "macOS",
+              "macOS SDK and a Mach-O linker. On macOS, run `xcode-select --install` to install the Command Line Tools."
+            ],
+            [
+              "Windows",
+              "A matching MinGW-w64 toolchain such as LLVM-MinGW, plus `llvm-ar` on PATH for package libraries."
+            ],
+            [
+              "WebAssembly",
+              "Clang with WebAssembly support and LLD's `wasm-ld`."
+            ]
+          ]
+        }
       }
     ]
   },
@@ -1989,11 +2050,11 @@ export const docs: Doc[] = [
       {
         "id": "building",
         "title": "Building for WebAssembly",
-        "text": "Set the environment variables `OCOS=js` and `OCARCH=wasm` to compile for WebAssembly instead of your machine. Both must be set together. The setting applies to every command that compiles: `build`, `check`, and `--emit-llvm`.",
+        "text": "Set the environment variables `OCOS=js` and `OCARCH=wasm` to compile for WebAssembly instead of your machine. Set both variables together for `ocean build` or `ocean check`. Use `ocean build --emit-llvm` to emit just the program IR.",
         "code": "OCOS=js OCARCH=wasm ocean build . -o main.wasm",
         "note": "",
         "lang": "Terminal",
-        "after": "The output is a `wasm32-unknown-unknown` module. You need a Clang with the WebAssembly target and `wasm-ld`; Clang and LLD version 23 are recommended. `ocean run` and `ocean test` only work for native targets, so load the module in a WebAssembly host to run it."
+        "after": "The output is a `wasm32-unknown-unknown` module. You need a Clang with the WebAssembly target and `wasm-ld`; Clang and LLD version 23 are recommended. Load the module in a WebAssembly host to run it."
       },
       {
         "id": "host",
