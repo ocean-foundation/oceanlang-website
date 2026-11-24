@@ -409,9 +409,10 @@ Remaining statement grammars are given in §10.
   must be an ASCII identifier (`[A-Za-z_][A-Za-z0-9_]*`).
 - **File selection** (before parsing):
   - Files ending `_test.oc` are excluded from ordinary builds (§14).
-  - Files whose base name (before `.oc` or `_test.oc`) ends in `_native` are used
-    only for native targets and `_wasm` only for `OCOS=js OCARCH=wasm`. All other
-    files are always used.
+  - Files whose base name (before `.oc` or `_test.oc`) ends in `_native` are
+    compiled only for native targets, while `_wasm` files are compiled only
+    when targeting `OCOS=js OCARCH=wasm`. All other files are included on every
+    target.
   - Only regular files are read.
 - Files are processed in byte-wise lexicographic order of path.
 - Package-level declarations (functions, types, structs, enums, interfaces,
@@ -1869,23 +1870,25 @@ executable. File paths are relative to the compiler's working directory.
   parameter; others are left for the type checker to report. Each changed file
   is reported as `ocean fix: <path>: <n> types rewritten`. Files are replaced
   atomically; the exit status is nonzero if a file cannot be read or written.
-- The default target is the host. Set both `OCOS` and `OCARCH` to select a
-  target for `build` or `check`. Linux supports `x86_64`, `aarch64` and
-  `riscv64`. macOS and Windows support `x86_64` and `aarch64`.
-  `OCOS=js OCARCH=wasm` selects `wasm32-unknown-unknown`.
-  `run` and `test` require the host target.
-- `ocean target --list` prints the target names and their `OCOS` and `OCARCH`
-  values. `ocean target <target>...` installs toolchain components for the
-  named targets. `ocean target --remove <target>...` removes those targets.
-  Builds use the installed components when the target is selected explicitly.
-  `OCEAN_TARGET_DIR` overrides the per-user installation directory. macOS targets
-  use the Apple SDK on a macOS host.
-- Cross-target `build --emit-llvm` emits program IR without the runtime.
-  Building and checking a binary require Clang, a linker, and any headers
-  and libraries for the target. `OCEAN_CLANG` selects the Clang executable
-  and `OCEAN_SYSROOT` sets an optional native target sysroot.
-- Other environment variables include `OCEAN_SRC` (standard library root),
-  `OCEAN_MOD_CACHE`, `OCEAN_BUILD_CACHE` (path or `off`), `NO_COLOR` and
+- By default, compilation targets the host platform. Setting both `OCOS` and
+  `OCARCH` selects an explicit target for `build` and `check`: Linux supports
+  `x86_64`, `aarch64`, and `riscv64`; macOS and Windows support `x86_64` and
+  `aarch64`; and `OCOS=js OCARCH=wasm` targets `wasm32-unknown-unknown`.
+  Executing code via `run` or `test` is restricted to the host target.
+- `ocean target --list` lists available target names along with their `OCOS`
+  and `OCARCH` pairs. `ocean target <target>...` downloads and installs managed
+  toolchain components for the specified targets, and
+  `ocean target --remove <target>...` uninstalls them. Explicit target builds
+  automatically pick up these managed components. `OCEAN_TARGET_DIR` overrides
+  the default per-user storage location; on a macOS host, macOS targets rely on
+  the local Apple SDK.
+- Running `build --emit-llvm` for a non-host target emits only the program's
+  LLVM IR, without needing a target runtime. Producing or checking a full
+  binary requires Clang, a compatible linker, and the target's headers and
+  libraries. `OCEAN_CLANG` overrides the Clang executable, and `OCEAN_SYSROOT`
+  specifies an optional native target sysroot.
+- Additional environment variables: `OCEAN_SRC` (standard library root),
+  `OCEAN_MOD_CACHE`, `OCEAN_BUILD_CACHE` (path or `off`), `NO_COLOR`, and
   `CLICOLOR_FORCE`.
 - Standard-library intrinsics (`reflect.Fields/IsStruct/IsEnum/EnumVariant`,
   the private `reflect.varIntegerBytes` helper, `threads.Spawn/Return`,
