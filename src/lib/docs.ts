@@ -1577,6 +1577,14 @@ export const docs: Doc[] = [
               "Build and run a package's tests"
             ],
             [
+              "`ocean target --list`",
+              "Show available compilation targets alongside their `OCOS`/`OCARCH` pairs"
+            ],
+            [
+              "`ocean target [--remove] <target>…`",
+              "Download or uninstall managed toolchain bundles for one or more targets"
+            ],
+            [
               "`ocean mod init [name]`",
               "Create `ocean.mod` in the current directory"
             ],
@@ -1620,7 +1628,7 @@ export const docs: Doc[] = [
         "text": "For a `main` package, `ocean build` produces an executable named after the package directory, or the name given with `-o`. For any other package it produces a native library object, `<package>.o`, which can be linked into other programs. If compilation or linking fails, the previous output file is left untouched.",
         "code": "",
         "note": "",
-        "after": "Static linking needs static versions of the system libraries (and of libffi or libcurl if your program uses them) to be installed; otherwise the link fails. It only applies to `main` packages.\n\nOn Windows, library objects are COFF archives, and building one requires `llvm-ar` on your `PATH`.",
+        "after": "Static linking needs static versions of the system libraries (and of libffi or libcurl if your program uses them) to be installed; otherwise the link fails. It only applies to `main` packages.\n\nOn Windows, library objects are emitted as COFF archives. When building against a managed target, Ocean invokes its bundled `llvm-ar`; otherwise it expects `llvm-ar` to be available on your `PATH`.",
         "table": {
           "headers": [
             "Option",
@@ -1695,7 +1703,19 @@ export const docs: Doc[] = [
             ],
             [
               "`OCOS`, `OCARCH`",
-              "Set both to `js` and `wasm` to target WebAssembly"
+              "Target operating system and CPU architecture; both must be specified together"
+            ],
+            [
+              "`OCEAN_CLANG`",
+              "Override Clang with a specific executable or wrapper script"
+            ],
+            [
+              "`OCEAN_SYSROOT`",
+              "Path to a native target sysroot providing headers and libraries"
+            ],
+            [
+              "`OCEAN_TARGET_DIR`",
+              "Custom absolute path where managed target toolchains are stored"
             ],
             [
               "`NO_COLOR`, `CLICOLOR_FORCE`",
@@ -1711,9 +1731,83 @@ export const docs: Doc[] = [
       {
         "id": "toolchain",
         "title": "What the compiler needs",
-        "text": "The compiler emits LLVM IR as text and runs Clang to compile and link it, so Clang must be on your `PATH` for `check`, `build`, `run`, and `test`. Programs are linked with libffi when they need it (for example, for C variadic calls). Programs that import `net/http` also need libcurl. Programs that use threads are linked with the threading runtime automatically.",
+        "text": "Ocean lowers your code to textual LLVM IR and delegates compilation and linking to Clang. When building for your own machine, Clang just needs to be discoverable on `PATH`—or you can point `OCEAN_CLANG` straight at the binary you want to use. Extra libraries are only pulled in when your code requires them: libffi handles C variadic calls with runtime arguments, libcurl powers native `net/http`, and the threading runtime is linked automatically whenever a program uses threads.",
         "code": "",
         "note": ""
+      },
+      {
+        "id": "targets",
+        "title": "Managing target toolchains",
+        "text": "To see every target Ocean knows about and the `OCOS`/`OCARCH` pair it maps to, run `ocean target --list`. Passing one or more target names downloads and installs their toolchain bundles, skipping any components you already have. Adding `--remove` uninstalls the listed targets.",
+        "code": "ocean target --list\nocean target x86_64-windows riscv64-linux wasm-js\nOCOS=windows OCARCH=x86_64 ocean build -o app.exe .\nocean target --remove x86_64-windows riscv64-linux",
+        "note": "",
+        "lang": "Terminal",
+        "after": "Behind the scenes, Ocean fetches versioned archives with `curl`, unpacks them with `tar`, and checks their integrity using the system's SHA-256 utility. Linux and Windows bundles come with libffi and libcurl development files ready to link against, though dynamically linked executables still expect the corresponding shared libraries on the machine where they run. On macOS, installing a macOS target relies on Apple's SDK; if it isn't present yet, install it with `xcode-select --install`.\n\nBy default, managed toolchains live in `~/.ocean/targets` on Linux and macOS, or `%LOCALAPPDATA%/Ocean/targets` on Windows. You can relocate them by pointing `OCEAN_TARGET_DIR` to an absolute path. Uninstalling a target keeps the shared host Clang and linker cache intact so other installed targets continue working."
+      },
+      {
+        "id": "cross-compilation",
+        "title": "Cross-compiling for other platforms",
+        "text": "Without extra configuration, Ocean compiles for the host machine. To target another platform during `ocean build` or `ocean check`, set both `OCOS` and `OCARCH`. Because `ocean run` and `ocean test` execute the resulting binary, they only work when targeting the host.",
+        "code": "OCOS=linux OCARCH=aarch64 ocean build -o app .",
+        "note": "",
+        "lang": "Terminal",
+        "after": "If you only need the generated LLVM IR for another platform, `ocean build --emit-llvm` writes the program IR without requiring a target runtime or toolchain. Full binary builds and `ocean check` automatically pick up the managed toolchain you installed for that target.",
+        "table": {
+          "headers": [
+            "OCOS",
+            "OCARCH"
+          ],
+          "rows": [
+            [
+              "`linux`",
+              "`x86_64`, `aarch64`, `riscv64`"
+            ],
+            [
+              "`macos`",
+              "`x86_64`, `aarch64`"
+            ],
+            [
+              "`windows`",
+              "`x86_64`, `aarch64`"
+            ],
+            [
+              "`js`",
+              "`wasm`"
+            ]
+          ]
+        }
+      },
+      {
+        "id": "manual-toolchains",
+        "title": "Bringing your own toolchain",
+        "text": "You don't have to use Ocean's managed bundles. Pointing `OCEAN_CLANG` to a custom Clang binary or wrapper, or setting `OCEAN_SYSROOT` to a native target sysroot, takes priority over any managed toolchain.",
+        "code": "",
+        "note": "",
+        "after": "If your program depends on libffi or libcurl, make sure the target's development packages are installed as well. When resolving those libraries through `pkg-config`, point `PKG_CONFIG_LIBDIR` to the target's metadata directories and avoid leaving host paths in `PKG_CONFIG_PATH`. If the `.pc` files use paths relative to a separate sysroot, set `PKG_CONFIG_SYSROOT_DIR` to that sysroot.",
+        "table": {
+          "headers": [
+            "Target",
+            "What you need to supply"
+          ],
+          "rows": [
+            [
+              "Linux",
+              "Target libc headers, CRT startup objects, compiler runtime libraries, and a compatible linker (a matching Linux cross-GCC installation provides all of these)."
+            ],
+            [
+              "macOS",
+              "The macOS SDK and a Mach-O linker. On a Mac, `xcode-select --install` installs the Command Line Tools."
+            ],
+            [
+              "Windows",
+              "A matching MinGW-w64 toolchain (such as LLVM-MinGW), plus `llvm-ar` on `PATH` when building library archives."
+            ],
+            [
+              "WebAssembly",
+              "A Clang build with WebAssembly support alongside LLD's `wasm-ld`."
+            ]
+          ]
+        }
       }
     ]
   },
@@ -1989,11 +2083,11 @@ export const docs: Doc[] = [
       {
         "id": "building",
         "title": "Building for WebAssembly",
-        "text": "Set the environment variables `OCOS=js` and `OCARCH=wasm` to compile for WebAssembly instead of your machine. Both must be set together. The setting applies to every command that compiles: `build`, `check`, and `--emit-llvm`.",
+        "text": "To target WebAssembly instead of your host platform, set both `OCOS=js` and `OCARCH=wasm` when running `ocean build` or `ocean check`. Adding `--emit-llvm` to `ocean build` outputs only the program's LLVM IR.",
         "code": "OCOS=js OCARCH=wasm ocean build . -o main.wasm",
         "note": "",
         "lang": "Terminal",
-        "after": "The output is a `wasm32-unknown-unknown` module. You need a Clang with the WebAssembly target and `wasm-ld`; Clang and LLD version 23 are recommended. `ocean run` and `ocean test` only work for native targets, so load the module in a WebAssembly host to run it."
+        "after": "This produces a `wasm32-unknown-unknown` module. Install the managed WebAssembly toolchain (Clang and `wasm-ld`) with `ocean target wasm-js`, then load the compiled `.wasm` file in a WebAssembly host to execute it."
       },
       {
         "id": "host",

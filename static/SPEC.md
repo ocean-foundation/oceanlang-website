@@ -409,9 +409,10 @@ Remaining statement grammars are given in §10.
   must be an ASCII identifier (`[A-Za-z_][A-Za-z0-9_]*`).
 - **File selection** (before parsing):
   - Files ending `_test.oc` are excluded from ordinary builds (§14).
-  - Files whose base name (before `.oc` or `_test.oc`) ends in `_native` are used
-    only for native targets; `_wasm` only when `OCARCH=wasm`. All other files are
-    always used.
+  - Files whose base name (before `.oc` or `_test.oc`) ends in `_native` are
+    compiled only for native targets, while `_wasm` files are compiled only
+    when targeting `OCOS=js OCARCH=wasm`. All other files are included on every
+    target.
   - Only regular files are read.
 - Files are processed in byte-wise lexicographic order of path.
 - Package-level declarations (functions, types, structs, enums, interfaces,
@@ -1851,7 +1852,8 @@ executable. File paths are relative to the compiler's working directory.
 - `ocean build [--check|--emit-llvm|--static|-s] [-o out] [location]`,
   `ocean run [-s] location [args…] [-- literal args]`, `ocean check [location]`,
   `ocean check --lsp`, `ocean test [locations…]`, `ocean mod init [name]`,
-  `ocean clean --cache`, `ocean fix [locations…]`, `ocean -v|--version`.
+  `ocean clean --cache`, `ocean fix [locations…]`, `ocean -v|--version`,
+  `ocean target --list`, `ocean target [--remove] <target>...`.
 - `ocean fix` rewrites the removed postfix type syntax to prefix syntax in place.
   A location is a package directory, an Ocean file (its directory), or `dir/...`
   (every directory below `dir` containing `.oc` files, skipping hidden
@@ -1868,10 +1870,26 @@ executable. File paths are relative to the compiler's working directory.
   parameter; others are left for the type checker to report. Each changed file
   is reported as `ocean fix: <path>: <n> types rewritten`. Files are replaced
   atomically; the exit status is nonzero if a file cannot be read or written.
-- Default target is the host (Linux/macOS/Windows; x86-64, AArch64, RISC-V64).
-  `OCOS=js OCARCH=wasm` selects `wasm32-unknown-unknown`.
-- Environment: `OCEAN_SRC` (standard library root), `OCEAN_MOD_CACHE`,
-  `OCEAN_BUILD_CACHE` (path or `off`), `NO_COLOR`, `CLICOLOR_FORCE`.
+- By default, compilation targets the host platform. Setting both `OCOS` and
+  `OCARCH` selects an explicit target for `build` and `check`: Linux supports
+  `x86_64`, `aarch64`, and `riscv64`; macOS and Windows support `x86_64` and
+  `aarch64`; and `OCOS=js OCARCH=wasm` targets `wasm32-unknown-unknown`.
+  Executing code via `run` or `test` is restricted to the host target.
+- `ocean target --list` lists available target names along with their `OCOS`
+  and `OCARCH` pairs. `ocean target <target>...` downloads and installs managed
+  toolchain components for the specified targets, and
+  `ocean target --remove <target>...` uninstalls them. Explicit target builds
+  automatically pick up these managed components. `OCEAN_TARGET_DIR` overrides
+  the default per-user storage location; on a macOS host, macOS targets rely on
+  the local Apple SDK.
+- Running `build --emit-llvm` for a non-host target emits only the program's
+  LLVM IR, without needing a target runtime. Producing or checking a full
+  binary requires Clang, a compatible linker, and the target's headers and
+  libraries. `OCEAN_CLANG` overrides the Clang executable, and `OCEAN_SYSROOT`
+  specifies an optional native target sysroot.
+- Additional environment variables: `OCEAN_SRC` (standard library root),
+  `OCEAN_MOD_CACHE`, `OCEAN_BUILD_CACHE` (path or `off`), `NO_COLOR`, and
+  `CLICOLOR_FORCE`.
 - Standard-library intrinsics (`reflect.Fields/IsStruct/IsEnum/EnumVariant`,
   the private `reflect.varIntegerBytes` helper, `threads.Spawn/Return`,
   `os.setArgs`) are recognized only when declared in
