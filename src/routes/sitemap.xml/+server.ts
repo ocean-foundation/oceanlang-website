@@ -10,7 +10,7 @@ function escapeXml(value: string): string {
 }
 
 export const GET: RequestHandler = ({ url }) => {
-	const paths = ['/', '/docs/', ...docs.map((doc) => `/docs/${doc.slug}/`)];
+	const paths = ['/', '/download/', '/docs/', ...docs.map((doc) => `/docs/${doc.slug}/`)];
 	const entries = paths.map((path) =>
 		`  <url><loc>${escapeXml(new URL(path, url.origin).href)}</loc></url>`
 	);

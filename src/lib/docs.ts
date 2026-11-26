@@ -17,14 +17,22 @@ export const docs: Doc[] = [
       {
         "id": "installer",
         "title": "Install with the installer",
-        "text": "The easiest way to install Ocean is the interactive installer attached to each GitHub release. Open the releases page, pick a release, and download the asset named `ocean-installer_<tag>_<arch>-<os>.tar` for your system. `<arch>` is `x86_64`, `aarch64`, or `riscv64`; `<os>` is `linux`, `macos`, or `windows`. Windows releases also offer `.zip` copies. Avoid the `ocean_…` assets: those contain only the bare compiler.\n\nEach archive holds a single program, `ocean-installer` (or `ocean-installer.exe` on Windows). Extract it and run it from a terminal. The installer needs Git, which it uses to read release tags and fetch the matching standard library.",
-        "code": "# Linux and macOS\ntar -xf ocean-installer_<tag>_<arch>-<os>.tar\n./ocean-installer\n\n# Windows (PowerShell)\n.\\ocean-installer.exe",
+        "text": "The easiest way to install Ocean is the interactive installer. Visit the Download page to automatically detect your operating system and grab the latest installer, or download directly from `/download/<arch>-<os>` (for example `/download/x86_64-linux`). You can also browse all installer releases on GitHub and download the asset named `ocean-installer_<tag>_<arch>-<os>.tar` for your system. `<arch>` is `x86_64`, `aarch64`, or `riscv64`; `<os>` is `linux`, `macos`, or `windows`.\n\nEach archive holds a single program, `ocean-installer` (or `ocean-installer.exe` on Windows). Extract it and run it from a terminal. The installer needs Git, which it uses to read release tags and fetch the matching standard library.",
+        "code": "# Linux and macOS\ntar -xf ocean-installer_<tag>_<arch>-<os>.tar\n./ocean-installer\n\n# Windows (PowerShell)\ntar -xf ocean-installer_<tag>_<arch>-<os>.tar\n.\\ocean-installer.exe",
         "note": "",
         "lang": "Terminal",
         "after": "The installer asks four questions:\n\n1. Which version to install. `latest` picks the newest stable release, `latest-nightly` picks the newest nightly build, and you can also type an exact tag. Neither option falls back to the other channel.\n\n2. Where to install. You can choose a system location (`/usr/local/lib/ocean` on Unix, Program Files on Windows), a per-user location (`~/.local/lib/ocean`, or LocalAppData on Windows), or any absolute path. It asks for administrator rights only if the location needs them.\n\n3. How to get Clang and the native libraries. You can skip this step, let your system package manager install them (apt, dnf, pacman, zypper, apk, Homebrew, MSYS2, or winget), or install a self-contained bundle with Clang, a linker, libffi, and libcurl into the Ocean directory. The bundle does not need administrator access. On macOS, Apple's Command Line Tools are still required.\n\n4. Whether to add Ocean to your `PATH`. Bash, Zsh, Fish, csh, and other POSIX shells are supported, as is the Windows user or machine environment.\n\nWhen it finishes, open a new terminal and run `ocean --version`. The output shows the release, the compiler commit it was built from, and the build date.",
         "links": [
           {
-            "label": "Ocean releases on GitHub",
+            "label": "Download Ocean",
+            "href": "/download/"
+          },
+          {
+            "label": "Installer releases on GitHub",
+            "href": "https://github.com/ocean-foundation/installer/releases"
+          },
+          {
+            "label": "Compiler releases on GitHub",
             "href": "https://github.com/ocean-foundation/ocean/releases"
           }
         ]

@@ -13,7 +13,7 @@ Ocean runs on Linux (x86-64, AArch64, and RISC-V64), macOS (x86-64 and Apple sil
 Ocean is under active development. These pages describe the current compiler and standard library; details can still change between releases.
 
 --- installer | Install with the installer
-The easiest way to install Ocean is the interactive installer attached to each GitHub release. Open the releases page, pick a release, and download the asset named `ocean-installer_<tag>_<arch>-<os>.tar` for your system. `<arch>` is `x86_64`, `aarch64`, or `riscv64`; `<os>` is `linux`, `macos`, or `windows`. Windows releases also offer `.zip` copies. Avoid the `ocean_…` assets: those contain only the bare compiler.
+The easiest way to install Ocean is the interactive installer. Visit the Download page to automatically detect your operating system and grab the latest installer, or download directly from `/download/<arch>-<os>` (for example `/download/x86_64-linux`). You can also browse all installer releases on GitHub and download the asset named `ocean-installer_<tag>_<arch>-<os>.tar` for your system. `<arch>` is `x86_64`, `aarch64`, or `riscv64`; `<os>` is `linux`, `macos`, or `windows`.
 
 Each archive holds a single program, `ocean-installer` (or `ocean-installer.exe` on Windows). Extract it and run it from a terminal. The installer needs Git, which it uses to read release tags and fetch the matching standard library.
 ```code Terminal
@@ -22,6 +22,7 @@ tar -xf ocean-installer_<tag>_<arch>-<os>.tar
 ./ocean-installer
 
 # Windows (PowerShell)
+tar -xf ocean-installer_<tag>_<arch>-<os>.tar
 .\ocean-installer.exe
 ```
 @after
@@ -37,7 +38,9 @@ The installer asks four questions:
 
 When it finishes, open a new terminal and run `ocean --version`. The output shows the release, the compiler commit it was built from, and the build date.
 @links
-Ocean releases on GitHub -> https://github.com/ocean-foundation/ocean/releases
+Download Ocean -> /download/
+Installer releases on GitHub -> https://github.com/ocean-foundation/installer/releases
+Compiler releases on GitHub -> https://github.com/ocean-foundation/ocean/releases
 
 --- releases | Stable releases and nightlies
 Stable releases are tagged on the compiler's `stable` branch. Nightly builds are tagged `nightly-YYYY.MM.DD`. Every day at 05:48 UTC, the release automation compares the `main` branches of the compiler and standard-library repositories with the last nightly. If either one changed, it tags both repositories and publishes a prerelease. The tag is named after the day that just ended, so the run on December 1 produces `nightly-2026.11.30`. If nothing changes, a fresh nightly is still built after 30 days.
