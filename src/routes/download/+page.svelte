@@ -44,7 +44,6 @@
 <main id="main" class="download-page">
 	<section class="download-hero">
 		<div class="download-intro">
-			<p class="eyebrow"><span class="status-dot"></span>INSTALLER &amp; RELEASES</p>
 			<h1>Download Ocean</h1>
 			<p class="download-lead">
 				Get the interactive Ocean installer to set up the compiler, standard library, and native
