@@ -59,7 +59,7 @@ Form | Effect
 Dot imports save typing but can make it unclear where a name comes from, and two dot-imported packages that export the same name make that name ambiguous. Blank imports are for packages whose global initializers do work you need.
 
 --- resolution | Where imports come from
-The compiler looks for an import path in three places: packages inside the current module, the standard library (in the installation's `src` directory, or wherever `OCEAN_SRC` points), and external modules, which are fetched with Git. External dependencies are covered on the packages and modules tooling page.
+The compiler looks for an import path in three places: packages inside the current module, the standard library (in the installation's `src` directory, or wherever `OCEAN_SRC` points), and external modules declared in `ocean.mod` and fetched ahead of time with `ocean fetch`. External dependencies are covered on the packages and modules tooling page.
 
 --- methods-ownership | Methods belong to their type's package
 Methods can only be declared in the package that defines their receiver type, though they may be in any file of it. You cannot add methods to a type imported from another package. If you need extra behavior for an imported type, define a new type based on it in your package, with `type Local other.Type;`, and give that type methods. An alias, `type Local = other.Type;`, is just another name for the imported type and cannot receive methods.
@@ -431,7 +431,7 @@ func main() {
 }
 ```
 @after
-A struct literal used as a function argument or return value must name its type, `Person{…}`; when assigned to a variable of known type, the type may be omitted: `p: Person = {"Kai", 9, 0};`. Structs can contain any type, including arrays, maps, and other structs. A struct cannot contain itself directly; use a pointer field such as `next *Node` for linked structures.
+A struct literal used as a function argument or return value must name its type, `Person{…}`; when assigned to a variable of known type, the type may be omitted: `p: Person = {"Kai", 9, 0};`. Structs can contain any type, including arrays, maps, and other structs. Types cannot contain themselves by value (directly or through structs, enums, fixed arrays, sized buffers, or aliases); use a pointer field such as `next *Node`, a dynamic array, a map, or an interface for recursive structures.
 
 --- copies | Structs are values
 Assigning a struct copies all of its fields, including any strings, arrays, and maps inside it. The copy and the original are completely independent. To share a struct, use a pointer: `p := &ada;` and then `p.age` reads through it (no explicit `*` is needed for field access).

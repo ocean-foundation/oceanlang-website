@@ -13,7 +13,7 @@ Ocean runs on Linux (x86-64, AArch64, and RISC-V64), macOS (x86-64 and Apple sil
 Ocean is under active development. These pages describe the current compiler and standard library; details can still change between releases.
 
 --- installer | Install with the installer
-The easiest way to install Ocean is the interactive installer attached to each GitHub release. Open the releases page, pick a release, and download the asset named `ocean-installer_<tag>_<arch>-<os>.tar` for your system. `<arch>` is `x86_64`, `aarch64`, or `riscv64`; `<os>` is `linux`, `macos`, or `windows`. Windows releases also offer `.zip` copies. Avoid the `ocean-c_…` assets: those contain only the bare compiler.
+The easiest way to install Ocean is the interactive installer attached to each GitHub release. Open the releases page, pick a release, and download the asset named `ocean-installer_<tag>_<arch>-<os>.tar` for your system. `<arch>` is `x86_64`, `aarch64`, or `riscv64`; `<os>` is `linux`, `macos`, or `windows`. Windows releases also offer `.zip` copies. Avoid the `ocean_…` assets: those contain only the bare compiler.
 
 Each archive holds a single program, `ocean-installer` (or `ocean-installer.exe` on Windows). Extract it and run it from a terminal. The installer needs Git, which it uses to read release tags and fetch the matching standard library.
 ```code Terminal
@@ -37,15 +37,18 @@ The installer asks four questions:
 
 When it finishes, open a new terminal and run `ocean --version`. The output shows the release, the compiler commit it was built from, and the build date.
 @links
-Ocean releases on GitHub -> https://github.com/ocean-foundation/ocean-c/releases
+Ocean releases on GitHub -> https://github.com/ocean-foundation/ocean/releases
 
 --- releases | Stable releases and nightlies
-Stable releases are tagged on the compiler's `stable` branch. Nightly builds are tagged `nightly-YYYY.MM.DD`. Every day at midnight UTC, the release automation compares the `main` branches of the compiler and standard-library repositories with the last nightly. If either one changed, it tags both repositories and publishes a prerelease. The tag is named after the day that just ended, so the run at midnight on December 1 produces `nightly-2026.11.30`. If nothing changes, a fresh nightly is still built after 30 days.
+Stable releases are tagged on the compiler's `stable` branch. Nightly builds are tagged `nightly-YYYY.MM.DD`. Every day at 05:48 UTC, the release automation compares the `main` branches of the compiler and standard-library repositories with the last nightly. If either one changed, it tags both repositories and publishes a prerelease. The tag is named after the day that just ended, so the run on December 1 produces `nightly-2026.11.30`. If nothing changes, a fresh nightly is still built after 30 days.
 
 A compiler release and the standard library with the same tag are designed to be used together. The installer always pairs them correctly. If you assemble an installation yourself, use the same tag for both.
 
---- source | Build from source
-To build Ocean yourself, you need CMake 4.2 or newer, a C compiler that supports C23, the libffi development headers and library, Clang on your `PATH`, and Python 3 (used by the test suite). Clone the compiler, `ocean-c`, and the standard library, `ocean-src`, side by side in the same parent directory. The build looks for the library at `../ocean-src` by default.
+--- build | Build from source
+The official Ocean compiler (ocean) is written in Ocean. If you want to build it from source you either need to download a precompiled binary first, or build the old pre-bootstrapping compiler (ocean-c) and use it to compile ocean.
+
+--- build-ocean-c | Build ocean-c
+To build ocean-c, you need CMake 4.2 or newer, a C compiler that supports C23, the libffi development headers and library, Clang on your `PATH`, and Python 3 (used by the test suite). Clone the compiler, `ocean-c`, and the standard library, `ocean-src`, side by side in the same parent directory. The build looks for the library at `../ocean-src` by default.
 ```code Terminal
 git clone https://github.com/ocean-foundation/ocean-c.git
 git clone https://github.com/ocean-foundation/ocean-src.git
@@ -62,7 +65,7 @@ The result is `build/ocean`. A compiler that is run straight out of the build di
 On Windows, build from an MSYS2 CLANG64 shell (or CLANGARM64 on ARM) with Clang, CMake, Ninja, Make, and the matching libffi package installed. The Clang on your `PATH` must target the Windows GNU/MinGW environment.
 
 --- install | Install a source build
-`cmake --install` copies the compiler to `<prefix>/bin/ocean` and the standard library to `<prefix>/src`. A compiler finds its library by looking in `../src` relative to its own executable, so an installed compiler works from any directory without further configuration.
+If you just built ocean-c, `cmake --install` copies the compiler to `<prefix>/bin/ocean` and the standard library to `<prefix>/src`. If you aren't installing from ocean-c (like if you downloaded the ocean compiler binary), create a folder `ocean` somewhere on your system that has subdirectories `src` and `bin`. Copy your compiler to bin/ocean and the standard library repo to src/. A compiler finds its library by looking in `../src` relative to its own executable, so an installed compiler works from any directory without further configuration. Remember to add ocean/bin to your path.
 ```code Terminal
 cmake --install build --prefix "$HOME/.local/lib/ocean"
 export PATH="$HOME/.local/lib/ocean/bin:$PATH"
@@ -72,6 +75,18 @@ ocean --version
 Add the `export` line to your shell's startup file to make it permanent.
 
 Two settings control which library is used. The CMake option `OCEAN_STANDARD_LIBRARY_SOURCE` chooses which library directory is copied at install time; it defaults to the sibling `../ocean-src`. The environment variable `OCEAN_SRC` tells a running compiler to use a different library directory than its installed copy, which is handy when you are working on the library itself.
+
+--- build-ocean | Build ocean
+Once you have an ocean compiler (ocean-c or ocean) installed, you can use it to build ocean from source. First, clone the compiler repository, `ocean`. Then, run `make selfhost` to build the self-hosted compiler. The makefile requires 'ocean' on your PATH, so if you are using ocean-c rename its binary to ocean in order to build.
+```code Terminal
+git clone https://github.com/ocean-foundation/ocean
+cd ocean
+make selfhost
+```
+@after
+If the build succeeded you should now have build/ocean and build/ocean-stage2. These are the compiler built with the installed toolchain and the self-hosted compiler (built by the previous binary) respectively.
+
+If you haven't already, follow the steps in the section above to setup your ocean install directory with your standard library and bin/ folder. Then, copy build/ocean-stage2 to bin/ocean.
 
 --- first-program | Write your first program
 Make a new, empty directory for the program. Inside it, run `ocean mod init` to create an `ocean.mod` file, which marks the directory as the root of a module (a project). Then save the following as `main.oc`.
@@ -119,8 +134,8 @@ If the compiler reports that it cannot find `io`, it cannot locate the standard 
 --- agent-skill | Coding with an AI agent
 The compiler repository contains a skill file for coding agents that summarizes Ocean's syntax, tooling, and libraries. Save it as `ocean/SKILL.md` in your agent's skills directory. It tracks the `main` branch, so download it again when you update the compiler.
 @links
-View the Ocean agent skill -> https://github.com/ocean-foundation/ocean-c/blob/main/skills/ocean/SKILL.md
-Download SKILL.md -> https://raw.githubusercontent.com/ocean-foundation/ocean-c/main/skills/ocean/SKILL.md
+View the Ocean agent skill -> https://github.com/ocean-foundation/ocean/blob/main/skills/ocean/SKILL.md
+Download SKILL.md -> https://raw.githubusercontent.com/ocean-foundation/ocean/main/skills/ocean/SKILL.md
 
 --- next | Where to go next
 Read the language guide in order: it starts with the basic syntax and builds up to generics, memory, and C interop. If you prefer to learn by doing, the tutorial walks through a complete interactive program.

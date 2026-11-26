@@ -55,7 +55,7 @@ These words are reserved and cannot be used as names: `any`, `as`, `asm`, `break
 --- literals | Literals
 Integer literals can be written in decimal (`255`), hexadecimal (`0xff`), binary (`0b1010`), or octal (`0o17`). Values up to 18446744073709551615, the largest unsigned 64-bit value, fit the standard integer types. Larger literals, up to 8,388,608 bits, get a wider `varuint(n)` or `varint(n)` type; see Integers of any width below. Floating-point literals contain a decimal point or an exponent: `3.5`, `0.25`, `1.5e3`, `6e-2`.
 
-`true` and `false` are the two boolean values. `null` is the "no value" marker for pointers, interfaces, and optionals.
+`true` and `false` are the two boolean values. `null` is the "no value" marker for interfaces, `any`, optionals, and unions.
 
 A character literal such as `'A'` or `'é'` is an integer holding the character's Unicode code point (`65` and `233` here). It can be assigned to any integer type wide enough to hold it, such as `i8` for ASCII bytes.
 
@@ -211,7 +211,7 @@ To store an integer variable in a float variable (or the reverse), cast it expli
 A floating-point literal takes the expected width. For example, `depth: f32 = 1.5;` uses `f32`, and `depth := 1.5;` infers `float` (`f64`). An `f32` value widens to `float` automatically. Narrowing an already-typed `f64` value requires a cast.
 
 --- casts | Casting with ->
-An explicit conversion is written `value -> Type`. Casting a float to an integer drops the fractional part. Casting a number to `bool` tests whether it is nonzero. When the target type is more than a single name, such as a pointer type or a type from another package, put it in parentheses: `raw -> (*int)`, `value -> (pkg.ID)`.
+An explicit conversion is written `value -> Type`. Casting a float to an integer truncates toward zero and saturates on `NaN` (yielding `0`), infinities, and out-of-range values to the destination type's minimum or maximum. Casting a number to `bool` tests whether it is nonzero. When the target type is more than a single name, such as a pointer type or a type from another package, put it in parentheses: `raw -> (*int)`, `value -> (pkg.ID)`.
 ```code
 // check: run
 // expect: 300 44 3 true
@@ -231,6 +231,8 @@ func main() {
 @after
 A cast always does what you ask, even when information is lost. Here `300` doesn't fit in an 8-bit integer, so the result keeps only the low 8 bits.
 
+Fixed-size arrays can be cast to another fixed-size array only when both element types are unowned and the total payload byte sizes match. Pointers to `string` cannot be cast to or from pointers or buffers to mutable values. To unbox an `any` or interface value to a concrete type, use a type assertion (`x.(T)`) or a type switch (`x.(type)`) rather than `->`.
+
 --- defaults | Default values and zero(T)
 Every type has a default value, which is what an uninitialized variable holds. `zero(Type)` produces that value explicitly. Its argument is a type, not a variable. This is especially useful in generic code, where you may not know the concrete type in advance.
 @table
@@ -241,9 +243,9 @@ Numbers | `0`
 Arrays, dynamic arrays, maps | Empty (length zero)
 Structs | Every field set to its own default
 Interfaces, `any`, `Optional<T>` | `null`
-Pointers | A zero address, which is not the same as `null`
+Pointers, unsized buffers | Address zero (`0x0`)
 @after
-The last row is a common surprise. A pointer declared without an initializer holds address zero, but Ocean's `null` is a separate marker, so `p: *int;` gives `p != null`. Initialize pointers to `null` explicitly when you mean "points to nothing". The memory page explains why.
+Raw pointers (`*T`, `*void`) and unsized buffers (`buffer<T>`) are non-nullable: their default value is address zero (`0x0`), which matches C's `NULL`, and `null` cannot be assigned to or compared with them. Use `Optional<*T>` when a pointer may be absent. The memory page covers this in detail.
 
 --- globals | Global variables
 A variable declared outside any function is a global. It is visible in every file of its package, and exported to other packages if its name is capitalized. Globals are set up before `main` runs: first every global receives its default value, then their initializers run. Packages you import are initialized before your package. Within a package, files are processed in filename order and globals in the order they are declared.
@@ -262,6 +264,8 @@ desc: Arithmetic, comparison, logical, and bitwise operators, and how == compare
 
 --- arithmetic | Arithmetic and bitwise operators
 The arithmetic operators are `+`, `-`, `*`, `/`, and `%` (remainder). Integers also support the bitwise operators `&` (and), `|` (or), `^` (exclusive or), `~` (complement), `<<` (shift left), and `>>` (shift right). On unsigned types, division, remainder, comparisons, and right shifts all treat values as unsigned.
+
+Integer `+`, `-`, `*`, `++`, and `--` wrap at their width. Integer division or remainder by zero and shifting by a negative count raise a recoverable panic. Signed minimum-value division wraps (`INT_MIN / -1` produces `INT_MIN` and `INT_MIN % -1` produces `0`), and shifting by a count at least as large as the operand's bit width yields `0`.
 
 `+` also joins strings and arrays; see the strings and collections pages.
 ```code
@@ -455,7 +459,7 @@ func main() {
 }
 ```
 @after
-The collection expression is evaluated once, before the loop starts. Because each element is copied into the loop variable, changing that variable does not change the collection; assign through an index, such as `values[i] = …`, when you mean to. Map loops work on a snapshot of the map's entries and visit them in no particular order. Strings are traversed byte by byte.
+The collection expression is evaluated once, before the loop starts. Because each element is copied into the loop variable, changing that variable does not change the collection; assign through an index, such as `values[i] = …`, when you mean to. The loop walks a snapshot of the collection (for arrays, dynamic arrays, strings, and maps alike), so modifying, resizing, or freeing the original collection during the loop does not disturb traversal. Map loops visit entries in no particular order. Strings are traversed byte by byte.
 
 --- break-continue | break, continue, and labels
 `break` leaves the innermost loop; `continue` skips to its next iteration (running the update of a three-part loop first). To affect an outer loop from inside a nested one, put a label before the outer loop and name it: `break outer;` or `continue outer;`.

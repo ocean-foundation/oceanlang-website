@@ -6,15 +6,16 @@ desc: Where the compiler, standard library, and this website are developed.
 --- repositories | The three repositories
 Ocean is developed in the open on GitHub, in three repositories under the `ocean-foundation` organization.
 
-`ocean-c` holds the compiler, written in C, together with the language server, the installer, the release scripts, the editor support files, and the compiler's test suite.
+`ocean` holds the compiler, written in Ocean, together with the language server, the installer, the release scripts, the editor support files, and the compiler's test suite. See `ocean-c` for the legacy compiler written in C.
 
 `ocean-src` holds the standard library, written in Ocean. A compiler release and the library tag with the same name belong together.
 
 `oceanlang-website` holds this website and its documentation.
 @links
-ocean-foundation/ocean-c -> https://github.com/ocean-foundation/ocean-c
+ocean-foundation/ocean -> https://github.com/ocean-foundation/ocean
 ocean-foundation/ocean-src -> https://github.com/ocean-foundation/ocean-src
 ocean-foundation/oceanlang-website -> https://github.com/ocean-foundation/oceanlang-website
+ocean-foundation/ocean-c (legacy C compiler) -> https://github.com/ocean-foundation/ocean-c
 
 --- contributing | Making a contribution
 Contributions are made as pull requests against each repository's `main` branch. Describe what you changed and which tests you ran. A language change usually touches more than one repository: the compiler, the standard library if it uses the change, and these docs. The compiler repository's agent skill file, `skills/ocean/SKILL.md`, is kept in step with the language and should be updated in the same change.
@@ -25,13 +26,13 @@ title: Working on the compiler
 desc: Build the compiler, run it against a library checkout, find your way around the pipeline, and run its tests.
 
 --- build | Build a development compiler
-Follow the source build on the getting-started page: clone `ocean-c` and `ocean-src` side by side and build with CMake. The build produces `build/ocean-c` and an identical `build/ocean`. Rebuild with `cmake --build build` after changing C files. To switch C compilers, configure a fresh build directory with `-DCMAKE_C_COMPILER=…` instead of reusing the old one.
+Follow the source build on the getting-started page: clone `ocean` and `ocean-src` side by side and build with `make`. Building requires an installed bootstrap `ocean` compiler (with a matching standard library), Clang, libffi development headers, `pkg-config`, Git, and GNU Make. The build produces `build/ocean`, and `make selfhost` compiles the compiler with itself to produce `build/ocean-stage2`. Rebuild with `make` after changing source files.
 ```code Terminal
-cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug
-cmake --build build
+make
+make selfhost
 ```
 @after
-You can also build with `make VERSION=1.2.3`, which wraps CMake and stamps the version into `ocean --version`. Without a version, it reports `dev`.
+Override the bootstrap compiler or version with `make OCEAN=/path/to/ocean VERSION=1.2.3` (defaults to `ocean` on `PATH` and `dev`). If you edit any of the C runtime files in `compiler/runtime/`, run `make runtime` (or `make`, which runs it automatically) to regenerate `compiler/runtime/source.oc`. `make clean` removes the `build/` directory.
 
 --- run | Run it against your library checkout
 A compiler in the build directory has no installed library next to it, so point `OCEAN_SRC` at your `ocean-src` checkout. Setting `OCEAN_BUILD_CACHE=off` makes sure every run really exercises the compiler you just built, rather than reusing cached objects.
@@ -41,25 +42,30 @@ OCEAN_BUILD_CACHE=off build/ocean check /path/to/example
 ```
 
 --- pipeline | How the compiler is organized
-The compiler's sources sit at the repository root. A build passes through these stages:
+The compiler is written in Ocean, with its entry point in `main.oc` and packages under `compiler/`. A build passes through these stages:
 @table
-Stage | Main files
-Command-line interface and tool invocation | `main.c`, `platform.c`
-Module and package loading, imports, external modules | `package.c`
-Scanning source text into tokens | `scanner.c`, `token.c`
-Parsing tokens into an abstract syntax tree | `parser.c`, `ast.c`
-Name resolution and type checking | `semantic.c`, `semantic_enum.inc`
-Generating LLVM IR | `backend.c` and its `backend_*.inc` parts
-Build cache | `build_cache.c`
-Runtime support embedded in programs | `runtime_threads.c`, `runtime_process.c`
-Language server | `lsp.c`, `lsp_semantic.inc`
+Stage | Main packages
+CLI, build driver, linking, cache, test runner, `fetch`, and targets | `main.oc`, `compiler/driver/` (`cli.oc`, `build.oc`, `link.oc`, `cache.oc`, `test.oc`, `fetch.oc`, `target.oc`)
+Module and package loading, `ocean.mod`, and `ocean.sum` verification | `compiler/loader/` (`loader.oc`, `sum.oc`)
+Scanning source text into tokens | `compiler/scanner/` (`scanner.oc`, `float.oc`, `unicode.oc`)
+Parsing tokens into an abstract syntax tree | `compiler/parser/`, `compiler/ast/`
+Name resolution, type checking, generics, and layout | `compiler/check/` (`checker.oc`, `resolve.oc`, `expr.oc`, `stmt.oc`, `generic.oc`, `layout.oc`)
+Generating LLVM IR | `compiler/backend/` (`gen.oc`, `module.oc`, `func.oc`, `stmt.oc`, `expr.oc`, `expr2.oc`, `call.oc`, `ops.oc`, `desc.oc`)
+Runtime support embedded in programs | `compiler/runtime/` (`core.c`, `ffi.c`, `process.c`, `threads.c`, `wasm.c`, generated `source.oc`)
+Language server, `ocean fix`, diagnostics, and shared utilities | `compiler/lsp/`, `compiler/fix/`, `compiler/diag/`, `compiler/util/`
 @after
-The backend writes LLVM IR as text, and `main.c` runs Clang to compile and link it. The interactive installer, in `installer/`, is itself an Ocean program.
+The backend writes LLVM IR as text, and `compiler/driver/link.oc` runs Clang to compile and link it. Small Ocean build helpers in `tools/` (`embedruntime` and `embedlogo`) regenerate the embedded runtime and ASCII logo sources during `make`.
 
 --- tests | Tests
-`ctest --test-dir build --output-on-failure` runs the whole suite, which is registered in `CMakeLists.txt`. It combines C unit tests for the scanner, parser, AST, and semantic analysis with Python integration tests in `tests/` that compile Ocean programs, inspect the generated code, and run the results. Other suites cover packages and modules, the build cache, the language server, the standard library, and release packaging. Use `ctest -R name` to run a focused suite while you work.
-
-`tests/README.md` explains the suite conventions. Known gaps are tracked in `tests/pending/`; a skipped pending test documents a missing feature, it doesn't prove that one works. When fixing a bug, add a test that fails without the fix. The parser accepts some syntax that later stages don't support, so test new features all the way through to a running program.
+`make test` builds `build/ocean` and runs the Ocean unit test suite across every package in the repository (`build/ocean test ./... --notty`). Tests live next to the code they exercise in `*_test.oc` files under `compiler/scanner`, `compiler/parser`, `compiler/check`, `compiler/loader`, `compiler/runtime`, and `compiler/util`. You can also run a single package's tests while working, or verify self-hosting and cross-target IR assembly:
+```code Terminal
+make test
+OCEAN_SRC="$PWD/../ocean-src" build/ocean test compiler/check --notty
+make selfhost
+make crosscheck
+```
+@after
+When fixing a bug, add a `_test.oc` test in the relevant package that fails without the fix. For changes that affect code generation or runtime behavior, also run `make selfhost` and test against `ocean-src` (`ocean test ./... --notty`) to verify the compiler end to end.
 
 === contribute/stdlib
 group: Contribute
@@ -126,7 +132,7 @@ Groups must be one of the groups listed in the script. Markdown other than inlin
 `scripts/check_docs.py` compiles every complete Ocean example (any example containing a `package` declaration) with `ocean check`. It uses the `ocean` on your `PATH`, or the compiler named by the `OCEAN` environment variable, and the usual `OCEAN_SRC` setting to choose the library. Lines that control the checker are removed from the published page: `// check: run` runs the example instead of only checking it, each `// expect: TEXT` line gives one expected line of output, `// check: skip` excludes an example that needs input or a network, and `// file: path` splits an example into several files.
 ```code Terminal
 python3 scripts/check_docs.py content/docs
-OCEAN=../ocean-c/build/ocean OCEAN_SRC=../ocean-src \
+OCEAN=../ocean/build/ocean OCEAN_SRC=../ocean-src \
   python3 scripts/check_docs.py content/docs language/functions
 ```
 

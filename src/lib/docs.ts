@@ -17,7 +17,7 @@ export const docs: Doc[] = [
       {
         "id": "installer",
         "title": "Install with the installer",
-        "text": "The easiest way to install Ocean is the interactive installer attached to each GitHub release. Open the releases page, pick a release, and download the asset named `ocean-installer_<tag>_<arch>-<os>.tar` for your system. `<arch>` is `x86_64`, `aarch64`, or `riscv64`; `<os>` is `linux`, `macos`, or `windows`. Windows releases also offer `.zip` copies. Avoid the `ocean-c_…` assets: those contain only the bare compiler.\n\nEach archive holds a single program, `ocean-installer` (or `ocean-installer.exe` on Windows). Extract it and run it from a terminal. The installer needs Git, which it uses to read release tags and fetch the matching standard library.",
+        "text": "The easiest way to install Ocean is the interactive installer attached to each GitHub release. Open the releases page, pick a release, and download the asset named `ocean-installer_<tag>_<arch>-<os>.tar` for your system. `<arch>` is `x86_64`, `aarch64`, or `riscv64`; `<os>` is `linux`, `macos`, or `windows`. Windows releases also offer `.zip` copies. Avoid the `ocean_…` assets: those contain only the bare compiler.\n\nEach archive holds a single program, `ocean-installer` (or `ocean-installer.exe` on Windows). Extract it and run it from a terminal. The installer needs Git, which it uses to read release tags and fetch the matching standard library.",
         "code": "# Linux and macOS\ntar -xf ocean-installer_<tag>_<arch>-<os>.tar\n./ocean-installer\n\n# Windows (PowerShell)\n.\\ocean-installer.exe",
         "note": "",
         "lang": "Terminal",
@@ -25,21 +25,28 @@ export const docs: Doc[] = [
         "links": [
           {
             "label": "Ocean releases on GitHub",
-            "href": "https://github.com/ocean-foundation/ocean-c/releases"
+            "href": "https://github.com/ocean-foundation/ocean/releases"
           }
         ]
       },
       {
         "id": "releases",
         "title": "Stable releases and nightlies",
-        "text": "Stable releases are tagged on the compiler's `stable` branch. Nightly builds are tagged `nightly-YYYY.MM.DD`. Every day at midnight UTC, the release automation compares the `main` branches of the compiler and standard-library repositories with the last nightly. If either one changed, it tags both repositories and publishes a prerelease. The tag is named after the day that just ended, so the run at midnight on December 1 produces `nightly-2026.11.30`. If nothing changes, a fresh nightly is still built after 30 days.\n\nA compiler release and the standard library with the same tag are designed to be used together. The installer always pairs them correctly. If you assemble an installation yourself, use the same tag for both.",
+        "text": "Stable releases are tagged on the compiler's `stable` branch. Nightly builds are tagged `nightly-YYYY.MM.DD`. Every day at 05:48 UTC, the release automation compares the `main` branches of the compiler and standard-library repositories with the last nightly. If either one changed, it tags both repositories and publishes a prerelease. The tag is named after the day that just ended, so the run on December 1 produces `nightly-2026.11.30`. If nothing changes, a fresh nightly is still built after 30 days.\n\nA compiler release and the standard library with the same tag are designed to be used together. The installer always pairs them correctly. If you assemble an installation yourself, use the same tag for both.",
         "code": "",
         "note": ""
       },
       {
-        "id": "source",
+        "id": "build",
         "title": "Build from source",
-        "text": "To build Ocean yourself, you need CMake 4.2 or newer, a C compiler that supports C23, the libffi development headers and library, Clang on your `PATH`, and Python 3 (used by the test suite). Clone the compiler, `ocean-c`, and the standard library, `ocean-src`, side by side in the same parent directory. The build looks for the library at `../ocean-src` by default.",
+        "text": "The official Ocean compiler (ocean) is written in Ocean. If you want to build it from source you either need to download a precompiled binary first, or build the old pre-bootstrapping compiler (ocean-c) and use it to compile ocean.",
+        "code": "",
+        "note": ""
+      },
+      {
+        "id": "build-ocean-c",
+        "title": "Build ocean-c",
+        "text": "To build ocean-c, you need CMake 4.2 or newer, a C compiler that supports C23, the libffi development headers and library, Clang on your `PATH`, and Python 3 (used by the test suite). Clone the compiler, `ocean-c`, and the standard library, `ocean-src`, side by side in the same parent directory. The build looks for the library at `../ocean-src` by default.",
         "code": "git clone https://github.com/ocean-foundation/ocean-c.git\ngit clone https://github.com/ocean-foundation/ocean-src.git\ncd ocean-c\ncmake -S . -B build\ncmake --build build\nctest --test-dir build --output-on-failure",
         "note": "",
         "lang": "Terminal",
@@ -48,11 +55,20 @@ export const docs: Doc[] = [
       {
         "id": "install",
         "title": "Install a source build",
-        "text": "`cmake --install` copies the compiler to `<prefix>/bin/ocean` and the standard library to `<prefix>/src`. A compiler finds its library by looking in `../src` relative to its own executable, so an installed compiler works from any directory without further configuration.",
+        "text": "If you just built ocean-c, `cmake --install` copies the compiler to `<prefix>/bin/ocean` and the standard library to `<prefix>/src`. If you aren't installing from ocean-c (like if you downloaded the ocean compiler binary), create a folder `ocean` somewhere on your system that has subdirectories `src` and `bin`. Copy your compiler to bin/ocean and the standard library repo to src/. A compiler finds its library by looking in `../src` relative to its own executable, so an installed compiler works from any directory without further configuration. Remember to add ocean/bin to your path.",
         "code": "cmake --install build --prefix \"$HOME/.local/lib/ocean\"\nexport PATH=\"$HOME/.local/lib/ocean/bin:$PATH\"\nocean --version",
         "note": "",
         "lang": "Terminal",
         "after": "Add the `export` line to your shell's startup file to make it permanent.\n\nTwo settings control which library is used. The CMake option `OCEAN_STANDARD_LIBRARY_SOURCE` chooses which library directory is copied at install time; it defaults to the sibling `../ocean-src`. The environment variable `OCEAN_SRC` tells a running compiler to use a different library directory than its installed copy, which is handy when you are working on the library itself."
+      },
+      {
+        "id": "build-ocean",
+        "title": "Build ocean",
+        "text": "Once you have an ocean compiler (ocean-c or ocean) installed, you can use it to build ocean from source. First, clone the compiler repository, `ocean`. Then, run `make selfhost` to build the self-hosted compiler. The makefile requires 'ocean' on your PATH, so if you are using ocean-c rename its binary to ocean in order to build.",
+        "code": "git clone https://github.com/ocean-foundation/ocean\ncd ocean\nmake selfhost",
+        "note": "",
+        "lang": "Terminal",
+        "after": "If the build succeeded you should now have build/ocean and build/ocean-stage2. These are the compiler built with the installed toolchain and the self-hosted compiler (built by the previous binary) respectively.\n\nIf you haven't already, follow the steps in the section above to setup your ocean install directory with your standard library and bin/ folder. Then, copy build/ocean-stage2 to bin/ocean."
       },
       {
         "id": "first-program",
@@ -80,11 +96,11 @@ export const docs: Doc[] = [
         "links": [
           {
             "label": "View the Ocean agent skill",
-            "href": "https://github.com/ocean-foundation/ocean-c/blob/main/skills/ocean/SKILL.md"
+            "href": "https://github.com/ocean-foundation/ocean/blob/main/skills/ocean/SKILL.md"
           },
           {
             "label": "Download SKILL.md",
-            "href": "https://raw.githubusercontent.com/ocean-foundation/ocean-c/main/skills/ocean/SKILL.md"
+            "href": "https://raw.githubusercontent.com/ocean-foundation/ocean/main/skills/ocean/SKILL.md"
           }
         ]
       },
@@ -149,7 +165,7 @@ export const docs: Doc[] = [
       {
         "id": "literals",
         "title": "Literals",
-        "text": "Integer literals can be written in decimal (`255`), hexadecimal (`0xff`), binary (`0b1010`), or octal (`0o17`). Values up to 18446744073709551615, the largest unsigned 64-bit value, fit the standard integer types. Larger literals, up to 8,388,608 bits, get a wider `varuint(n)` or `varint(n)` type; see Integers of any width below. Floating-point literals contain a decimal point or an exponent: `3.5`, `0.25`, `1.5e3`, `6e-2`.\n\n`true` and `false` are the two boolean values. `null` is the \"no value\" marker for pointers, interfaces, and optionals.\n\nA character literal such as `'A'` or `'é'` is an integer holding the character's Unicode code point (`65` and `233` here). It can be assigned to any integer type wide enough to hold it, such as `i8` for ASCII bytes.\n\nString literals are written in double quotes. A raw string is written in backticks: its contents are taken exactly as written, with no escape processing, and it may span several lines.",
+        "text": "Integer literals can be written in decimal (`255`), hexadecimal (`0xff`), binary (`0b1010`), or octal (`0o17`). Values up to 18446744073709551615, the largest unsigned 64-bit value, fit the standard integer types. Larger literals, up to 8,388,608 bits, get a wider `varuint(n)` or `varint(n)` type; see Integers of any width below. Floating-point literals contain a decimal point or an exponent: `3.5`, `0.25`, `1.5e3`, `6e-2`.\n\n`true` and `false` are the two boolean values. `null` is the \"no value\" marker for interfaces, `any`, optionals, and unions.\n\nA character literal such as `'A'` or `'é'` is an integer holding the character's Unicode code point (`65` and `233` here). It can be assigned to any integer type wide enough to hold it, such as `i8` for ASCII bytes.\n\nString literals are written in double quotes. A raw string is written in backticks: its contents are taken exactly as written, with no escape processing, and it may span several lines.",
         "code": "package main;\n\nimport \"io\";\n\nfunc main() {\n    io.Println(\"Tab:\\tend\");\n    io.Println(`C:\\files\\new`);\n    io.Println(\"\\x41\\101\\u00e9\");\n}",
         "note": "",
         "table": {
@@ -331,10 +347,10 @@ export const docs: Doc[] = [
       {
         "id": "casts",
         "title": "Casting with ->",
-        "text": "An explicit conversion is written `value -> Type`. Casting a float to an integer drops the fractional part. Casting a number to `bool` tests whether it is nonzero. When the target type is more than a single name, such as a pointer type or a type from another package, put it in parentheses: `raw -> (*int)`, `value -> (pkg.ID)`.",
+        "text": "An explicit conversion is written `value -> Type`. Casting a float to an integer truncates toward zero and saturates on `NaN` (yielding `0`), infinities, and out-of-range values to the destination type's minimum or maximum. Casting a number to `bool` tests whether it is nonzero. When the target type is more than a single name, such as a pointer type or a type from another package, put it in parentheses: `raw -> (*int)`, `value -> (pkg.ID)`.",
         "code": "package main;\n\nimport \"io\";\n\nfunc main() {\n    wide: i32 = 300;\n    narrow := wide -> i8;          // 300 does not fit in i8: the value wraps\n    ratio := 3.75;\n    whole := ratio -> int;          // 3\n    nonzero := whole -> bool;       // true\n    io.Println(wide, narrow, whole, nonzero);\n}",
         "note": "",
-        "after": "A cast always does what you ask, even when information is lost. Here `300` doesn't fit in an 8-bit integer, so the result keeps only the low 8 bits."
+        "after": "A cast always does what you ask, even when information is lost. Here `300` doesn't fit in an 8-bit integer, so the result keeps only the low 8 bits.\n\nFixed-size arrays can be cast to another fixed-size array only when both element types are unowned and the total payload byte sizes match. Pointers to `string` cannot be cast to or from pointers or buffers to mutable values. To unbox an `any` or interface value to a concrete type, use a type assertion (`x.(T)`) or a type switch (`x.(type)`) rather than `->`."
       },
       {
         "id": "defaults",
@@ -342,7 +358,7 @@ export const docs: Doc[] = [
         "text": "Every type has a default value, which is what an uninitialized variable holds. `zero(Type)` produces that value explicitly. Its argument is a type, not a variable. This is especially useful in generic code, where you may not know the concrete type in advance.",
         "code": "",
         "note": "",
-        "after": "The last row is a common surprise. A pointer declared without an initializer holds address zero, but Ocean's `null` is a separate marker, so `p: *int;` gives `p != null`. Initialize pointers to `null` explicitly when you mean \"points to nothing\". The memory page explains why.",
+        "after": "Raw pointers (`*T`, `*void`) and unsized buffers (`buffer<T>`) are non-nullable: their default value is address zero (`0x0`), which matches C's `NULL`, and `null` cannot be assigned to or compared with them. Use `Optional<*T>` when a pointer may be absent. The memory page covers this in detail.",
         "table": {
           "headers": [
             "Type",
@@ -374,8 +390,8 @@ export const docs: Doc[] = [
               "`null`"
             ],
             [
-              "Pointers",
-              "A zero address, which is not the same as `null`"
+              "Pointers, unsized buffers",
+              "Address zero (`0x0`)"
             ]
           ]
         }
@@ -405,7 +421,7 @@ export const docs: Doc[] = [
       {
         "id": "arithmetic",
         "title": "Arithmetic and bitwise operators",
-        "text": "The arithmetic operators are `+`, `-`, `*`, `/`, and `%` (remainder). Integers also support the bitwise operators `&` (and), `|` (or), `^` (exclusive or), `~` (complement), `<<` (shift left), and `>>` (shift right). On unsigned types, division, remainder, comparisons, and right shifts all treat values as unsigned.\n\n`+` also joins strings and arrays; see the strings and collections pages.",
+        "text": "The arithmetic operators are `+`, `-`, `*`, `/`, and `%` (remainder). Integers also support the bitwise operators `&` (and), `|` (or), `^` (exclusive or), `~` (complement), `<<` (shift left), and `>>` (shift right). On unsigned types, division, remainder, comparisons, and right shifts all treat values as unsigned.\n\nInteger `+`, `-`, `*`, `++`, and `--` wrap at their width. Integer division or remainder by zero and shifting by a negative count raise a recoverable panic. Signed minimum-value division wraps (`INT_MIN / -1` produces `INT_MIN` and `INT_MIN % -1` produces `0`), and shifting by a count at least as large as the operand's bit width yields `0`.\n\n`+` also joins strings and arrays; see the strings and collections pages.",
         "code": "package main;\n\nimport \"io\";\n\nfunc main() {\n    io.Println(7 / 2, 7 % 3, 1 << 4, 6 & 3, 6 | 1, 6 ^ 3, ~5);\n}",
         "note": ""
       },
@@ -480,7 +496,7 @@ export const docs: Doc[] = [
         "text": "`range` visits each element of an array, dynamic array, string, or map. With two variables, an array or string loop receives the index and a copy of the element, and a map loop receives each key and a copy of its value. With one variable, you get only the index (or only the key). Use `_` for a position you don't need.",
         "code": "package main;\n\nimport \"io\";\n\nfunc main() {\n    values := []int{10, 20, 30};\n    for (i, value := range values) {\n        if (i < 2) io.Printfln(\"{}: {}\", i, value);\n    }\n    total := 0;\n    for (_, value := range values) {\n        total += value;\n    }\n    io.Println(total - 30);\n}",
         "note": "",
-        "after": "The collection expression is evaluated once, before the loop starts. Because each element is copied into the loop variable, changing that variable does not change the collection; assign through an index, such as `values[i] = …`, when you mean to. Map loops work on a snapshot of the map's entries and visit them in no particular order. Strings are traversed byte by byte."
+        "after": "The collection expression is evaluated once, before the loop starts. Because each element is copied into the loop variable, changing that variable does not change the collection; assign through an index, such as `values[i] = …`, when you mean to. The loop walks a snapshot of the collection (for arrays, dynamic arrays, strings, and maps alike), so modifying, resizing, or freeing the original collection during the loop does not disturb traversal. Map loops visit entries in no particular order. Strings are traversed byte by byte."
       },
       {
         "id": "break-continue",
@@ -653,7 +669,7 @@ export const docs: Doc[] = [
       {
         "id": "resolution",
         "title": "Where imports come from",
-        "text": "The compiler looks for an import path in three places: packages inside the current module, the standard library (in the installation's `src` directory, or wherever `OCEAN_SRC` points), and external modules, which are fetched with Git. External dependencies are covered on the packages and modules tooling page.",
+        "text": "The compiler looks for an import path in three places: packages inside the current module, the standard library (in the installation's `src` directory, or wherever `OCEAN_SRC` points), and external modules declared in `ocean.mod` and fetched ahead of time with `ocean fetch`. External dependencies are covered on the packages and modules tooling page.",
         "code": "",
         "note": ""
       },
@@ -936,7 +952,7 @@ export const docs: Doc[] = [
         "text": "A struct groups named fields. Each field is a name followed by a type, and fields with the same type can share a declaration: `x, y int;`. Create a struct value with a literal, listing values in field order or naming the fields you want to set. Fields you leave out get their default values. Read and write fields with a dot.",
         "code": "package main;\n\nimport \"io\";\n\nstruct Person {\n    name string;\n    age int;\n    visits int;\n}\n\nfunc main() {\n    ada := Person{\"Ada\", 36, 0};\n    lin := Person{name: \"Lin\"};\n    ada.age++;\n    io.Println(ada.name, \" \", ada.age, \" \", lin.visits);\n}",
         "note": "",
-        "after": "A struct literal used as a function argument or return value must name its type, `Person{…}`; when assigned to a variable of known type, the type may be omitted: `p: Person = {\"Kai\", 9, 0};`. Structs can contain any type, including arrays, maps, and other structs. A struct cannot contain itself directly; use a pointer field such as `next *Node` for linked structures."
+        "after": "A struct literal used as a function argument or return value must name its type, `Person{…}`; when assigned to a variable of known type, the type may be omitted: `p: Person = {\"Kai\", 9, 0};`. Structs can contain any type, including arrays, maps, and other structs. Types cannot contain themselves by value (directly or through structs, enums, fixed arrays, sized buffers, or aliases); use a pointer field such as `next *Node`, a dynamic array, a map, or an interface for recursive structures."
       },
       {
         "id": "copies",
@@ -1116,7 +1132,7 @@ export const docs: Doc[] = [
       {
         "id": "panic",
         "title": "panic",
-        "text": "`panic \"message\";` stops the current function and starts unwinding the call stack. Deferred calls run on the way out. If nothing recovers, the program prints `Panic:` with the message, the file, line, and column, the offending source line, and a call trace, then exits with status 1. The message must be a string. Because a panic never returns, a function may end in a panic instead of a `return`.\n\nThe runtime raises the same kind of error for problems it detects, such as an out-of-range array index or a missing map key. Those reports work without debug symbols or source files, because the compiler embeds the needed source snippets in the executable.",
+        "text": "`panic \"message\";` stops the current function and starts unwinding the call stack. Deferred calls run on the way out. If nothing recovers, the program prints `Panic:` with the message, the file, line, and column, the offending source line, and a call trace, then exits with status 1. The message must be a string. Because a panic never returns, a function may end in a panic instead of a `return`.\n\nThe runtime raises the same kind of error for problems it detects, such as an out-of-range array index, a missing map key, integer division or remainder by zero, or a negative shift count. Those reports work without debug symbols or source files, because the compiler embeds the needed source snippets in the executable.",
         "code": "",
         "note": ""
       },
@@ -1126,7 +1142,7 @@ export const docs: Doc[] = [
         "text": "Often a function panics because it was called incorrectly. `return panic \"message\";` reports the panic at the place where the current function was called, rather than inside it, so the diagnostic points at the code that needs fixing. The full call trace is still shown.",
         "code": "package main;\n\nimport \"io\";\n\nfunc check(n int) int {\n    if (n < 0) return panic \"negative input\";\n    return n;\n}\n\nfunc main() {\n    io.Println(check(-1));    // the panic is reported here\n}",
         "note": "",
-        "after": "`return panic` skips the deferred calls of the function it appears in. `forward panic` extends this through helper layers: write `forward panic return helper();`, or `forward panic { first(); second(); }` around several statements, and a `return panic` coming out of those calls is reported at your caller instead. Only panics that originate from `return panic` are forwarded; an ordinary `panic` keeps its own location."
+        "after": "`return panic` skips the deferred calls of the function it appears in. `forward panic` extends this through helper layers: write `forward panic return helper();`, or `forward panic { first(); second(); }` around several statements, and a `return panic` coming out of those calls is reported at your caller instead. Only panics that originate from `return panic` are forwarded; an ordinary `panic` keeps its own location. Owned arguments and receivers captured by skipped deferred calls are still released."
       },
       {
         "id": "recover",
@@ -1169,7 +1185,7 @@ export const docs: Doc[] = [
       {
         "id": "assertions",
         "title": "Type assertions",
-        "text": "`value.(Type)` extracts the concrete value from an interface. If the value holds some other type, the program stops, so only assert this way when you know the type.\n\nTo test the type instead, assign the assertion to two names: `msg, ok := value.(string);`. The second name is a `bool` that reports whether the value held that type. When it is `false`, the first name holds the type's zero value and the program keeps running. The two-name form also works with `=` and in an `if` initializer. To choose between several types, use a type switch.",
+        "text": "`value.(Type)` extracts the concrete value from an interface (unboxing to a concrete type uses assertions or type switches, not `->` casts). If the value holds some other type, the program stops, so only assert this way when you know the type. Narrowing one interface type to another can use `value -> NarrowInterface`, which preserves `null` and traps if a non-null value does not satisfy the narrower interface.\n\nTo test the type instead, assign the assertion to two names: `msg, ok := value.(string);`. The second name is a `bool` that reports whether the value held that type. When it is `false`, the first name holds the type's zero value and the program keeps running. The two-name form also works with `=` and in an `if` initializer. To choose between several types, use a type switch.",
         "code": "package main;\n\nimport \"io\";\n\nfunc show(value any) {\n    if (msg, ok := value.(string); ok) {\n        io.Println(\"text \" + msg);\n        return;\n    }\n    io.Println(\"not text\");\n}\n\nfunc main() {\n    show(\"hi\");\n    show(42);\n}",
         "note": ""
       },
@@ -1267,21 +1283,21 @@ export const docs: Doc[] = [
         "text": "A pointer holds the address of a value. `&x` takes the address of `x`, giving a `*T` (pointer to `T`). `*p` reaches the value it points at, for reading or writing. Field access works directly through a pointer to a struct: `p.name` means `(*p).name`.\n\nPointers do not own what they point to. Copying a pointer copies only the address, so both copies refer to the same value. Use a pointer when you want several parts of a program to see and modify the same value.",
         "code": "package main;\n\nimport \"io\";\n\nstruct Account { balance int; }\n\nfunc deposit(account *Account, amount int) {\n    account.balance += amount;\n}\n\nfunc main() {\n    savings := Account{5};\n    alias := &savings;\n    deposit(&savings, 2);\n    io.Println(savings.balance, \" \", alias.balance);\n}",
         "note": "",
-        "after": "A pointer to a local variable is valid only while that variable exists. Don't return the address of a local, and don't keep one after its block has ended. When data must outlive the function that creates it, allocate it with `new`.\n\nRead pointer and array types from left to right. `*[]int` is a pointer to a dynamic array of integers, while `[]*int` is a dynamic array of pointers.\n\nUse `p + n`, `n + p`, or `p - n` to move a pointer by `n` elements of its pointee type. For example, if `p := &items[0]`, then `*(p + 1)` accesses the second item. The operators `+=`, `-=`, `++`, and `--` update the pointer. Subtracting two pointers of the same type into one array gives the signed element distance. Pointer arithmetic performs no bounds checks and traps on `null`.\n\n`ip: *int = 5;` and `ip := 5->(*int);` both initialize a pointer to address `0x5`. Use an explicit cast for integer addresses in reassignments and function arguments, as in `ip = 5->(*int)` or `f(5->(*int))`. Only dereference an address when it points to a live value of the right type."
+        "after": "A pointer to a local variable is valid only while that variable exists. Don't return the address of a local, and don't keep one after its block has ended. When data must outlive the function that creates it, allocate it with `new`.\n\nRead pointer and array types from left to right. `*[]int` is a pointer to a dynamic array of integers, while `[]*int` is a dynamic array of pointers.\n\nUse `p + n`, `n + p`, or `p - n` to move a pointer by `n` elements of its pointee type. For example, if `p := &items[0]`, then `*(p + 1)` accesses the second item. The operators `+=`, `-=`, `++`, and `--` update the pointer. Subtracting two pointers of the same type into one array gives the signed element distance. Pointer arithmetic performs no bounds checks.\n\n`ip: *int = 5;` and `ip := 5->(*int);` both initialize a pointer to address `0x5`. Use an explicit cast for integer addresses in reassignments and function arguments, as in `ip = 5->(*int)` or `f(5->(*int))`. Only dereference an address when it points to a live value of the right type."
       },
       {
         "id": "new-free",
         "title": "new and free",
-        "text": "`new(T)` allocates a value of type `T` on the heap, sets it to `zero(T)`, and returns a `*T`. The memory stays allocated until you release it with `free(pointer)`. Ocean never frees it for you, because a pointer doesn't own its target: forgetting to call `free` leaks the memory. `free` releases the value and anything it owns, such as strings and arrays inside a struct, but it does not follow pointer fields.",
-        "code": "package main;\n\nimport \"io\";\n\nstruct Node {\n    value int;\n    next *Node;\n}\n\nfunc main() {\n    first := new(Node);\n    first.value = 1;\n    first.next = null;\n\n    second := new(Node);\n    second.value = 2;\n    second.next = first;\n\n    for (n := second; n != null; n = n.next) {\n        io.Println(n.value);\n    }\n    free(second);\n    free(first);\n}",
+        "text": "`new(T)` allocates a value of type `T` on the heap, sets it to `zero(T)`, and returns a `*T`. The memory stays allocated until you release it with `free(pointer)`. Ocean never frees it for you, because a pointer doesn't own its target: forgetting to call `free` leaks the memory. `free` releases the value and anything it owns, such as strings and arrays inside a struct, but it does not follow pointer fields. Calling `free(&local)` or `free(&global)` is a compile-time error. `free(p)` leaves the pointer value unchanged and invalidates all aliases to that allocation; the compiler does not track freed raw pointers, so accessing a released allocation or freeing it twice is undefined behavior.",
+        "code": "package main;\n\nimport \"io\";\n\nstruct Node {\n    value int;\n    next Optional<*Node>;\n}\n\nfunc main() {\n    first := new(Node);\n    first.value = 1;\n\n    second := new(Node);\n    second.value = 2;\n    second.next = Optional<*Node>.value(first);\n\n    cur := Optional<*Node>.value(second);\n    for (cur != null) {\n        n := cur.unwrap();\n        io.Println(n.value);\n        cur = n.next;\n    }\n    free(second);\n    free(first);\n}",
         "note": ""
       },
       {
         "id": "null",
-        "title": "null versus the zero address",
-        "text": "Ocean's `null` is a reserved marker meaning \"points to nothing\". It is not the same as address zero. A pointer declared without an initializer holds address zero and is not equal to `null`. That's why the linked list above sets `next` to `null` explicitly; when a list's last node relies on the default value instead, a loop testing `n != null` would run off the end.\n\nComparing with `null` and dereferencing `null` are both well defined: dereferencing `null` stops the program. A `p := null` declaration is not allowed, since there is no type to infer; write `p: *Node = null;`. Only pointers, interfaces, and `Optional` values can be `null`.",
+        "title": "Non-nullable pointers and Optional<*T>",
+        "text": "Raw pointers (`*T` and `*void`) and unsized buffers (`buffer<T>`) are non-nullable: `null` cannot be assigned to or compared with them. An uninitialized pointer (or `zero(*T)`) holds address zero (`0x0`), which is a valid machine address on flat-memory targets and corresponds directly to C's `NULL`.\n\nWhen a pointer may be absent, wrap it in `Optional<*T>`, as in the linked list above. An uninitialized `Optional<*T>` starts as `none` (which equals `null`), and `null` can be assigned to and compared with it. Only interfaces, `any`, `Optional<T>`, and unions can be `null`, and `p := null` is not allowed because `null` requires an explicit nullable type.",
         "code": "",
-        "note": "When calling C, never pass Ocean's `null` where C expects `NULL`. Use `zero(*void)` instead, and test pointers returned by C with `(pointer -> int) == 0`."
+        "note": "When calling C `extern` functions, pass `zero(*void)` (or `zero(*T)`) for C `NULL`, and test pointers returned by C with `pointer == zero(*void)` or `(pointer -> int) == 0`."
       },
       {
         "id": "buffers",
@@ -1289,7 +1305,7 @@ export const docs: Doc[] = [
         "text": "Most code never needs anything below arrays, but for low-level work and C interop Ocean has raw buffers. A buffer is contiguous storage with no bounds checks and no length header.",
         "code": "package main;\n\nimport \"io\";\n\nfunc fill(data buffer<int>, count int) {\n    for (i := 0; i < count; i++) {\n        data[i] = i;\n    }\n}\n\nfunc main() {\n    values := []int{0, 0, 0, 0};\n    fill(values.data, len(values));\n    io.Println(values[3]);\n}",
         "note": "",
-        "after": "Indexing a buffer is never checked, so going out of range corrupts memory instead of stopping the program. A buffer's length is not passed along with it: a function that receives a buffer needs a separate count. Every array has a `.data` field that gives a raw buffer view of its elements.",
+        "after": "Indexing a buffer is never checked, so going out of range corrupts memory instead of stopping the program. A buffer's length is not passed along with it: a function that receives a buffer needs a separate count. Every array has a `.data` field that gives a raw buffer view of its elements.\n\nRuntime `buffer<T, n>` allocations and `buffer<T>{…}` literals are block-scoped stack views that live until the end of the enclosing block (repeated evaluations inside a loop do not invalidate earlier live views in the same block). Directly returning a stack-allocated buffer (`return buf;`) emits a compiler warning.",
         "table": {
           "headers": [
             "Type",
@@ -1302,11 +1318,11 @@ export const docs: Doc[] = [
             ],
             [
               "`buffer<T, n>`",
-              "A runtime-sized buffer on the stack; its elements start uninitialized"
+              "A runtime-sized, block-scoped buffer on the stack; its elements start uninitialized"
             ],
             [
               "`buffer<T>`",
-              "A raw pointer to elements of `T`, with no length and no ownership"
+              "A non-nullable raw pointer to elements of `T`, with no length and no ownership (`zero(buffer<T>)` is `0x0`; use `Optional<buffer<T>>` if nullable)"
             ]
           ]
         }
@@ -1589,6 +1605,10 @@ export const docs: Doc[] = [
               "Create `ocean.mod` in the current directory"
             ],
             [
+              "`ocean fetch [<url>[@version]]`",
+              "Download external modules into the cache, update `ocean.mod`, and record checksums in `ocean.sum`"
+            ],
+            [
               "`ocean fix [locations…]`",
               "Rewrite old postfix type syntax to the current prefix syntax, in place"
             ],
@@ -1699,7 +1719,7 @@ export const docs: Doc[] = [
             ],
             [
               "`OCEAN_MOD_CACHE`",
-              "Where downloaded modules are stored (default `~/.cache/ocean/modules`)"
+              "Where downloaded modules are stored (default `$HOME/.cache/ocean/modules`; fails if neither is set)"
             ],
             [
               "`OCOS`, `OCARCH`",
@@ -1828,10 +1848,12 @@ export const docs: Doc[] = [
       },
       {
         "id": "external",
-        "title": "External modules",
-        "text": "To use another module, add it to `require` and import its packages by their full path, for example `import \"github.com/example/collections/list\";`. The first build downloads the repository with Git over HTTPS and stores it in `~/.cache/ocean/modules/<module>@<version>`, where later builds reuse it. `OCEAN_MOD_CACHE` moves this directory.\n\nModules are fetched directly from their Git repositories; there is no central module proxy. An import of the form `host/owner/repository/...` that isn't listed in `require` is fetched from the repository's default branch, which is convenient for experiments, but declare versions for anything you want to build reproducibly.",
-        "code": "",
-        "note": ""
+        "title": "External modules and ocean fetch",
+        "text": "External modules are declared in `ocean.mod` and fetched explicitly with `ocean fetch` rather than automatically during compilation. Running `ocean build`, `ocean check`, or `ocean test` never downloads remote repositories.\n\nRun `ocean fetch <url>[@version]` (where `@version` is `@latest` or a Git tag, defaulting to `latest`) to clone a module into `$OCEAN_MOD_CACHE` (or `$HOME/.cache/ocean/modules/<module>@<version>`, failing if neither is set), add or update its `require` entry in `ocean.mod`, and record its SHA-256 checksum in the root project's `ocean.sum`. If `<url>` is already declared in `ocean.mod` and no `@version` is given, `ocean fetch <url>` fetches the recorded version without editing `ocean.mod`. Running bare `ocean fetch` fetches every dependency declared in the root `ocean.mod` and transitively in each dependency's `ocean.mod`, recording all checksums in the root `ocean.sum`.",
+        "code": "ocean fetch github.com/example/collections@v1.2.3\nocean fetch",
+        "note": "",
+        "lang": "Terminal",
+        "after": "Modules are cloned directly from their Git repositories with Git hooks and interactive prompts disabled; there is no central module proxy. Each entry in `ocean.sum` is a deterministic SHA-256 checksum over the module's sorted relative file paths and contents (excluding `.git/`). During `ocean build`, `ocean check`, and `ocean test`, the compiler verifies every cached external dependency against `ocean.sum` and refuses to compile if a dependency is missing from the cache, absent from `ocean.sum`, or modified since download."
       },
       {
         "id": "local",
@@ -2912,7 +2934,7 @@ export const docs: Doc[] = [
       {
         "id": "spawn",
         "title": "Starting and waiting for threads",
-        "text": "`threads.Spawn(job)` starts a function or closure on a new operating-system thread and returns a thread ID. `threads.Await(id)` waits until that thread has finished, and `threads.IsDone(id)` checks without waiting. `threads.CurrentID()` returns the calling thread's ID; the main thread is 0. IDs are never reused, and passing an unknown ID to any function panics.",
+        "text": "`threads.Spawn(job)` starts a function or closure on a new operating-system thread and returns a thread ID. `threads.Await(id)` waits until that thread has finished, and `threads.IsDone(id)` checks without waiting. Repeated and concurrent `Await` calls on the same worker succeed: the runtime joins the native thread once, and `IsDone` continues to report completion for that ID until process shutdown. `threads.CurrentID()` returns the calling thread's ID; the main thread is 0. IDs are never reused, and passing an unknown ID to any function panics.",
         "code": "package main;\n\nimport \"io\";\nimport \"threads\";\nimport \"sync\";\n\nfunc main() {\n    total := 0;\n    lock: sync.Mutex;\n    ids := make([]int);\n    for (i := 0; i < 4; i++) {\n        ids.append(threads.Spawn(func() {\n            lock.Lock();\n            defer lock.Unlock();\n            total += 1;\n        }));\n    }\n    for (_, id := range ids) {\n        threads.Await(id);\n    }\n    io.Println(total);\n}",
         "note": "",
         "after": "Closures share the variables they capture, so threads that modify the same variable must coordinate, here with a `sync.Mutex`. When `main` returns, the program waits for every thread still running before it exits."
@@ -2981,7 +3003,7 @@ export const docs: Doc[] = [
       {
         "id": "rules",
         "title": "Using them correctly",
-        "text": "Both types work as soon as they are declared; no initialization is needed. Their methods use pointer receivers, and they must stay at a fixed location: never copy a mutex or wait group after you start using it, and pass it to functions as a pointer. A wait group can be reused only after every earlier `Wait` call has returned.",
+        "text": "Both types work as soon as they are declared; no initialization is needed. Their methods use pointer receivers, and they must stay at a fixed location: never copy a mutex or wait group after you start using it, and pass it to functions as a pointer. A wait group can be reused only after every earlier `Wait` call has returned.\n\nBoth `Mutex` and `WaitGroup` provide `Destroy()` and `Close()` to release their native resources explicitly once all threads have finished using the object. Calling `Destroy()` or `Close()` more than once, or calling any other method on a closed object, panics. Process shutdown cleans up any objects that are still open.",
         "code": "",
         "note": ""
       }
@@ -3301,13 +3323,13 @@ export const docs: Doc[] = [
       {
         "id": "repositories",
         "title": "The three repositories",
-        "text": "Ocean is developed in the open on GitHub, in three repositories under the `ocean-foundation` organization.\n\n`ocean-c` holds the compiler, written in C, together with the language server, the installer, the release scripts, the editor support files, and the compiler's test suite.\n\n`ocean-src` holds the standard library, written in Ocean. A compiler release and the library tag with the same name belong together.\n\n`oceanlang-website` holds this website and its documentation.",
+        "text": "Ocean is developed in the open on GitHub, in three repositories under the `ocean-foundation` organization.\n\n`ocean` holds the compiler, written in Ocean, together with the language server, the installer, the release scripts, the editor support files, and the compiler's test suite. See `ocean-c` for the legacy compiler written in C.\n\n`ocean-src` holds the standard library, written in Ocean. A compiler release and the library tag with the same name belong together.\n\n`oceanlang-website` holds this website and its documentation.",
         "code": "",
         "note": "",
         "links": [
           {
-            "label": "ocean-foundation/ocean-c",
-            "href": "https://github.com/ocean-foundation/ocean-c"
+            "label": "ocean-foundation/ocean",
+            "href": "https://github.com/ocean-foundation/ocean"
           },
           {
             "label": "ocean-foundation/ocean-src",
@@ -3316,6 +3338,10 @@ export const docs: Doc[] = [
           {
             "label": "ocean-foundation/oceanlang-website",
             "href": "https://github.com/ocean-foundation/oceanlang-website"
+          },
+          {
+            "label": "ocean-foundation/ocean-c (legacy C compiler)",
+            "href": "https://github.com/ocean-foundation/ocean-c"
           }
         ]
       },
@@ -3337,11 +3363,11 @@ export const docs: Doc[] = [
       {
         "id": "build",
         "title": "Build a development compiler",
-        "text": "Follow the source build on the getting-started page: clone `ocean-c` and `ocean-src` side by side and build with CMake. The build produces `build/ocean-c` and an identical `build/ocean`. Rebuild with `cmake --build build` after changing C files. To switch C compilers, configure a fresh build directory with `-DCMAKE_C_COMPILER=…` instead of reusing the old one.",
-        "code": "cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug\ncmake --build build",
+        "text": "Follow the source build on the getting-started page: clone `ocean` and `ocean-src` side by side and build with `make`. Building requires an installed bootstrap `ocean` compiler (with a matching standard library), Clang, libffi development headers, `pkg-config`, Git, and GNU Make. The build produces `build/ocean`, and `make selfhost` compiles the compiler with itself to produce `build/ocean-stage2`. Rebuild with `make` after changing source files.",
+        "code": "make\nmake selfhost",
         "note": "",
         "lang": "Terminal",
-        "after": "You can also build with `make VERSION=1.2.3`, which wraps CMake and stamps the version into `ocean --version`. Without a version, it reports `dev`."
+        "after": "Override the bootstrap compiler or version with `make OCEAN=/path/to/ocean VERSION=1.2.3` (defaults to `ocean` on `PATH` and `dev`). If you edit any of the C runtime files in `compiler/runtime/`, run `make runtime` (or `make`, which runs it automatically) to regenerate `compiler/runtime/source.oc`. `make clean` removes the `build/` directory."
       },
       {
         "id": "run",
@@ -3354,51 +3380,47 @@ export const docs: Doc[] = [
       {
         "id": "pipeline",
         "title": "How the compiler is organized",
-        "text": "The compiler's sources sit at the repository root. A build passes through these stages:",
+        "text": "The compiler is written in Ocean, with its entry point in `main.oc` and packages under `compiler/`. A build passes through these stages:",
         "code": "",
         "note": "",
-        "after": "The backend writes LLVM IR as text, and `main.c` runs Clang to compile and link it. The interactive installer, in `installer/`, is itself an Ocean program.",
+        "after": "The backend writes LLVM IR as text, and `compiler/driver/link.oc` runs Clang to compile and link it. Small Ocean build helpers in `tools/` (`embedruntime` and `embedlogo`) regenerate the embedded runtime and ASCII logo sources during `make`.",
         "table": {
           "headers": [
             "Stage",
-            "Main files"
+            "Main packages"
           ],
           "rows": [
             [
-              "Command-line interface and tool invocation",
-              "`main.c`, `platform.c`"
+              "CLI, build driver, linking, cache, test runner, `fetch`, and targets",
+              "`main.oc`, `compiler/driver/` (`cli.oc`, `build.oc`, `link.oc`, `cache.oc`, `test.oc`, `fetch.oc`, `target.oc`)"
             ],
             [
-              "Module and package loading, imports, external modules",
-              "`package.c`"
+              "Module and package loading, `ocean.mod`, and `ocean.sum` verification",
+              "`compiler/loader/` (`loader.oc`, `sum.oc`)"
             ],
             [
               "Scanning source text into tokens",
-              "`scanner.c`, `token.c`"
+              "`compiler/scanner/` (`scanner.oc`, `float.oc`, `unicode.oc`)"
             ],
             [
               "Parsing tokens into an abstract syntax tree",
-              "`parser.c`, `ast.c`"
+              "`compiler/parser/`, `compiler/ast/`"
             ],
             [
-              "Name resolution and type checking",
-              "`semantic.c`, `semantic_enum.inc`"
+              "Name resolution, type checking, generics, and layout",
+              "`compiler/check/` (`checker.oc`, `resolve.oc`, `expr.oc`, `stmt.oc`, `generic.oc`, `layout.oc`)"
             ],
             [
               "Generating LLVM IR",
-              "`backend.c` and its `backend_*.inc` parts"
-            ],
-            [
-              "Build cache",
-              "`build_cache.c`"
+              "`compiler/backend/` (`gen.oc`, `module.oc`, `func.oc`, `stmt.oc`, `expr.oc`, `expr2.oc`, `call.oc`, `ops.oc`, `desc.oc`)"
             ],
             [
               "Runtime support embedded in programs",
-              "`runtime_threads.c`, `runtime_process.c`"
+              "`compiler/runtime/` (`core.c`, `ffi.c`, `process.c`, `threads.c`, `wasm.c`, generated `source.oc`)"
             ],
             [
-              "Language server",
-              "`lsp.c`, `lsp_semantic.inc`"
+              "Language server, `ocean fix`, diagnostics, and shared utilities",
+              "`compiler/lsp/`, `compiler/fix/`, `compiler/diag/`, `compiler/util/`"
             ]
           ]
         }
@@ -3406,9 +3428,11 @@ export const docs: Doc[] = [
       {
         "id": "tests",
         "title": "Tests",
-        "text": "`ctest --test-dir build --output-on-failure` runs the whole suite, which is registered in `CMakeLists.txt`. It combines C unit tests for the scanner, parser, AST, and semantic analysis with Python integration tests in `tests/` that compile Ocean programs, inspect the generated code, and run the results. Other suites cover packages and modules, the build cache, the language server, the standard library, and release packaging. Use `ctest -R name` to run a focused suite while you work.\n\n`tests/README.md` explains the suite conventions. Known gaps are tracked in `tests/pending/`; a skipped pending test documents a missing feature, it doesn't prove that one works. When fixing a bug, add a test that fails without the fix. The parser accepts some syntax that later stages don't support, so test new features all the way through to a running program.",
-        "code": "",
-        "note": ""
+        "text": "`make test` builds `build/ocean` and runs the Ocean unit test suite across every package in the repository (`build/ocean test ./... --notty`). Tests live next to the code they exercise in `*_test.oc` files under `compiler/scanner`, `compiler/parser`, `compiler/check`, `compiler/loader`, `compiler/runtime`, and `compiler/util`. You can also run a single package's tests while working, or verify self-hosting and cross-target IR assembly:",
+        "code": "make test\nOCEAN_SRC=\"$PWD/../ocean-src\" build/ocean test compiler/check --notty\nmake selfhost\nmake crosscheck",
+        "note": "",
+        "lang": "Terminal",
+        "after": "When fixing a bug, add a `_test.oc` test in the relevant package that fails without the fix. For changes that affect code generation or runtime behavior, also run `make selfhost` and test against `ocean-src` (`ocean test ./... --notty`) to verify the compiler end to end."
       }
     ]
   },
@@ -3477,7 +3501,7 @@ export const docs: Doc[] = [
         "id": "examples",
         "title": "Verify the examples",
         "text": "`scripts/check_docs.py` compiles every complete Ocean example (any example containing a `package` declaration) with `ocean check`. It uses the `ocean` on your `PATH`, or the compiler named by the `OCEAN` environment variable, and the usual `OCEAN_SRC` setting to choose the library. Lines that control the checker are removed from the published page: `// check: run` runs the example instead of only checking it, each `// expect: TEXT` line gives one expected line of output, `// check: skip` excludes an example that needs input or a network, and `// file: path` splits an example into several files.",
-        "code": "python3 scripts/check_docs.py content/docs\nOCEAN=../ocean-c/build/ocean OCEAN_SRC=../ocean-src \\\n  python3 scripts/check_docs.py content/docs language/functions",
+        "code": "python3 scripts/check_docs.py content/docs\nOCEAN=../ocean/build/ocean OCEAN_SRC=../ocean-src \\\n  python3 scripts/check_docs.py content/docs language/functions",
         "note": "",
         "lang": "Terminal"
       },

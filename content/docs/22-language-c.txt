@@ -73,7 +73,7 @@ func main() {
 --- panic | panic
 `panic "message";` stops the current function and starts unwinding the call stack. Deferred calls run on the way out. If nothing recovers, the program prints `Panic:` with the message, the file, line, and column, the offending source line, and a call trace, then exits with status 1. The message must be a string. Because a panic never returns, a function may end in a panic instead of a `return`.
 
-The runtime raises the same kind of error for problems it detects, such as an out-of-range array index or a missing map key. Those reports work without debug symbols or source files, because the compiler embeds the needed source snippets in the executable.
+The runtime raises the same kind of error for problems it detects, such as an out-of-range array index, a missing map key, integer division or remainder by zero, or a negative shift count. Those reports work without debug symbols or source files, because the compiler embeds the needed source snippets in the executable.
 
 --- return-panic | return panic: blaming the caller
 Often a function panics because it was called incorrectly. `return panic "message";` reports the panic at the place where the current function was called, rather than inside it, so the diagnostic points at the code that needs fixing. The full call trace is still shown.
@@ -93,7 +93,7 @@ func main() {
 }
 ```
 @after
-`return panic` skips the deferred calls of the function it appears in. `forward panic` extends this through helper layers: write `forward panic return helper();`, or `forward panic { first(); second(); }` around several statements, and a `return panic` coming out of those calls is reported at your caller instead. Only panics that originate from `return panic` are forwarded; an ordinary `panic` keeps its own location.
+`return panic` skips the deferred calls of the function it appears in. `forward panic` extends this through helper layers: write `forward panic return helper();`, or `forward panic { first(); second(); }` around several statements, and a `return panic` coming out of those calls is reported at your caller instead. Only panics that originate from `return panic` are forwarded; an ordinary `panic` keeps its own location. Owned arguments and receivers captured by skipped deferred calls are still released.
 
 --- recover | Recovering from a panic
 `recover()` stops a panic, but only when it is called directly inside a deferred function while that panic is unwinding. It returns the panic message as an `any` holding a `string`. In any other situation it returns `null`. After recovery, the function that panicked returns normally to its caller: named results keep their current values, and other results are default values.
@@ -173,7 +173,7 @@ If a type's methods use a pointer receiver, only a pointer to it satisfies the i
 Interface values, including `any`, can be `null`, and that is their default value. Calling a method on a null interface panics.
 
 --- assertions | Type assertions
-`value.(Type)` extracts the concrete value from an interface. If the value holds some other type, the program stops, so only assert this way when you know the type.
+`value.(Type)` extracts the concrete value from an interface (unboxing to a concrete type uses assertions or type switches, not `->` casts). If the value holds some other type, the program stops, so only assert this way when you know the type. Narrowing one interface type to another can use `value -> NarrowInterface`, which preserves `null` and traps if a non-null value does not satisfy the narrower interface.
 
 To test the type instead, assign the assertion to two names: `msg, ok := value.(string);`. The second name is a `bool` that reports whether the value held that type. When it is `false`, the first name holds the type's zero value and the program keeps running. The two-name form also works with `=` and in an `if` initializer. To choose between several types, use a type switch.
 ```code
@@ -444,12 +444,12 @@ A pointer to a local variable is valid only while that variable exists. Don't re
 
 Read pointer and array types from left to right. `*[]int` is a pointer to a dynamic array of integers, while `[]*int` is a dynamic array of pointers.
 
-Use `p + n`, `n + p`, or `p - n` to move a pointer by `n` elements of its pointee type. For example, if `p := &items[0]`, then `*(p + 1)` accesses the second item. The operators `+=`, `-=`, `++`, and `--` update the pointer. Subtracting two pointers of the same type into one array gives the signed element distance. Pointer arithmetic performs no bounds checks and traps on `null`.
+Use `p + n`, `n + p`, or `p - n` to move a pointer by `n` elements of its pointee type. For example, if `p := &items[0]`, then `*(p + 1)` accesses the second item. The operators `+=`, `-=`, `++`, and `--` update the pointer. Subtracting two pointers of the same type into one array gives the signed element distance. Pointer arithmetic performs no bounds checks.
 
 `ip: *int = 5;` and `ip := 5->(*int);` both initialize a pointer to address `0x5`. Use an explicit cast for integer addresses in reassignments and function arguments, as in `ip = 5->(*int)` or `f(5->(*int))`. Only dereference an address when it points to a live value of the right type.
 
 --- new-free | new and free
-`new(T)` allocates a value of type `T` on the heap, sets it to `zero(T)`, and returns a `*T`. The memory stays allocated until you release it with `free(pointer)`. Ocean never frees it for you, because a pointer doesn't own its target: forgetting to call `free` leaks the memory. `free` releases the value and anything it owns, such as strings and arrays inside a struct, but it does not follow pointer fields.
+`new(T)` allocates a value of type `T` on the heap, sets it to `zero(T)`, and returns a `*T`. The memory stays allocated until you release it with `free(pointer)`. Ocean never frees it for you, because a pointer doesn't own its target: forgetting to call `free` leaks the memory. `free` releases the value and anything it owns, such as strings and arrays inside a struct, but it does not follow pointer fields. Calling `free(&local)` or `free(&global)` is a compile-time error. `free(p)` leaves the pointer value unchanged and invalidates all aliases to that allocation; the compiler does not track freed raw pointers, so accessing a released allocation or freeing it twice is undefined behavior.
 ```code
 // check: run
 // expect: 2
@@ -460,42 +460,46 @@ import "io";
 
 struct Node {
     value int;
-    next *Node;
+    next Optional<*Node>;
 }
 
 func main() {
     first := new(Node);
     first.value = 1;
-    first.next = null;
 
     second := new(Node);
     second.value = 2;
-    second.next = first;
+    second.next = Optional<*Node>.value(first);
 
-    for (n := second; n != null; n = n.next) {
+    cur := Optional<*Node>.value(second);
+    for (cur != null) {
+        n := cur.unwrap();
         io.Println(n.value);
+        cur = n.next;
     }
     free(second);
     free(first);
 }
 ```
 
---- null | null versus the zero address
-Ocean's `null` is a reserved marker meaning "points to nothing". It is not the same as address zero. A pointer declared without an initializer holds address zero and is not equal to `null`. That's why the linked list above sets `next` to `null` explicitly; when a list's last node relies on the default value instead, a loop testing `n != null` would run off the end.
+--- null | Non-nullable pointers and Optional<*T>
+Raw pointers (`*T` and `*void`) and unsized buffers (`buffer<T>`) are non-nullable: `null` cannot be assigned to or compared with them. An uninitialized pointer (or `zero(*T)`) holds address zero (`0x0`), which is a valid machine address on flat-memory targets and corresponds directly to C's `NULL`.
 
-Comparing with `null` and dereferencing `null` are both well defined: dereferencing `null` stops the program. A `p := null` declaration is not allowed, since there is no type to infer; write `p: *Node = null;`. Only pointers, interfaces, and `Optional` values can be `null`.
+When a pointer may be absent, wrap it in `Optional<*T>`, as in the linked list above. An uninitialized `Optional<*T>` starts as `none` (which equals `null`), and `null` can be assigned to and compared with it. Only interfaces, `any`, `Optional<T>`, and unions can be `null`, and `p := null` is not allowed because `null` requires an explicit nullable type.
 @note
-When calling C, never pass Ocean's `null` where C expects `NULL`. Use `zero(*void)` instead, and test pointers returned by C with `(pointer -> int) == 0`.
+When calling C `extern` functions, pass `zero(*void)` (or `zero(*T)`) for C `NULL`, and test pointers returned by C with `pointer == zero(*void)` or `(pointer -> int) == 0`.
 
 --- buffers | Raw buffers
 Most code never needs anything below arrays, but for low-level work and C interop Ocean has raw buffers. A buffer is contiguous storage with no bounds checks and no length header.
 @table
 Type | Meaning
 `buffer<T, 4>` | Four elements of `T`, stored inline, with a length known at compile time
-`buffer<T, n>` | A runtime-sized buffer on the stack; its elements start uninitialized
-`buffer<T>` | A raw pointer to elements of `T`, with no length and no ownership
+`buffer<T, n>` | A runtime-sized, block-scoped buffer on the stack; its elements start uninitialized
+`buffer<T>` | A non-nullable raw pointer to elements of `T`, with no length and no ownership (`zero(buffer<T>)` is `0x0`; use `Optional<buffer<T>>` if nullable)
 @after
 Indexing a buffer is never checked, so going out of range corrupts memory instead of stopping the program. A buffer's length is not passed along with it: a function that receives a buffer needs a separate count. Every array has a `.data` field that gives a raw buffer view of its elements.
+
+Runtime `buffer<T, n>` allocations and `buffer<T>{…}` literals are block-scoped stack views that live until the end of the enclosing block (repeated evaluations inside a loop do not invalidate earlier live views in the same block). Directly returning a stack-allocated buffer (`return buf;`) emits a compiler warning.
 ```code
 // check: run
 // expect: 3

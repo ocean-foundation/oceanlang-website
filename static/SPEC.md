@@ -448,13 +448,20 @@ An import path `P` from a package in module `M` resolves to the first of:
 2. If `M.root/P` is a directory: that directory (module-relative import).
 3. The standard library: `$OCEAN_SRC/P` if `OCEAN_SRC` is set, otherwise
    `<compiler-executable-dir>/../src/P`.
-4. An external module: the longest `require`/`replace` entry that is a prefix of
-   `P`; or, if none, a conventional `host/owner/repo` prefix (the first segment
-   must contain a `.`). A `replace` to a path starting with `.` or `/` uses that
-   local directory (relative to the module root); otherwise the module is cloned
-   with `git clone --depth 1 [--branch <version>] https://<module>` into the cache
-   (`$OCEAN_MOD_CACHE` or `~/.cache/ocean/modules/<module>@<version|latest>`). The
-   fetched module must contain `ocean.mod` declaring the expected name (unless replaced).
+4. An external module: the longest `require`/`replace` entry in `ocean.mod` that is
+   a prefix of `P`. Unknown external modules are **not** automatically fetched
+   during compilation (`build`, `check`, or `test`); declare and fetch remote
+   dependencies explicitly via `ocean fetch` (§15). A `replace` to a path
+   starting with `.` or `/` uses that local directory (relative to the module
+   root); otherwise the module is resolved from the module cache
+   (`$OCEAN_MOD_CACHE`, or `$HOME/.cache/ocean/modules/<module>@<version|latest>`;
+   failing if neither is set rather than falling back to `/tmp`) and verified
+   against the root project's `ocean.sum` (deterministic SHA-256 checksum over
+   the sorted relative file paths and file contents, excluding `.git/`).
+   A slash in a version is encoded as `%2F` in the cache directory name.
+   Compilation refuses to run if any external dependency is missing from the cache, absent from
+   `ocean.sum`, or modified since download. The fetched module must contain
+   `ocean.mod` declaring the expected name (unless replaced).
 
 Otherwise resolution fails. **Import cycles are errors.**
 
@@ -544,8 +551,8 @@ _, y := f();
 - With no initializer, the variable holds the zero value of `T`.
 - Inference rules: an untyped integer literal infers `int`; a float literal
   `float`; a string literal `string`; an untyped composite literal infers a
-  fixed array (§9.6); `null` cannot be inferred ("null requires an explicit
-  pointer type").
+  fixed array (§9.6); `null` cannot be inferred and requires an explicit
+  nullable type (`Optional<T>`, interface, `any`, or union).
 - Declaring an uninitialized `array<T>`, an unsized `buffer<T>`, or a struct
   with value parameters (§6.7) without an initializer is an error. A
   runtime-sized buffer cannot have an initializer.
@@ -673,21 +680,22 @@ of `i8` (§6.6) whose capacity always equals its length.
 - For a pointer `p` to a sized type and an integer `n`, `p + n`, `n + p`,
   and `p - n` offset the address by whole elements and preserve the pointer
   type. `p += n`, `p -= n`, `++`, and `--` update the pointer in place.
-  Arithmetic traps on the reserved `null` marker. It does not check bounds.
+  Pointer arithmetic does not check bounds.
 - Subtracting two pointers of identical type into the same array, including its
   one-past-the-end address, gives their signed difference in elements as an
   `int`. The element size must be nonzero. Only dereference pointers to live
   elements.
-- `null` is assignable to pointers, interfaces (including `any`), and
-  `Optional<T>`. Pointers compare with `==`/`!=`.
-- An uninitialized pointer (or `zero(*T)`) is the **zero address**, which is
-  **not equal** to `null`. `null` uses a distinct reserved marker; dereferencing
-  `null` traps.
+- Raw pointers (`*T` and `*void`) are **non-nullable**: `null` is not
+  assignable to or comparable with `*T` (use `Optional<*T>`, §6.12). Pointers
+  compare with `==`/`!=`.
+- An uninitialized pointer (or `zero(*T)`) is the **zero address** (`0x0`),
+  which is a valid machine address (e.g. on microprocessors and flat-memory
+  targets) and corresponds to C `NULL` when passed to `extern` functions.
 - `*T` and unsized buffer pointers convert implicitly to `*void` in assignment,
   arguments, returns, comparisons, and ternaries; the reverse requires a cast.
   This does not apply through more levels of indirection (`**T` ↛ `**void`).
-- Pointers to `string` and pointers to mutable values (e.g. `*[]i8`) are not
-  inter-convertible even with a cast.
+- Pointers to `string` and pointers or buffers to mutable values (e.g. `*[]i8`,
+  `buffer<i8>`) are not inter-convertible even with a cast.
 - Member access through a pointer auto-dereferences: `p.field`, `p.method()`.
 
 ### 6.5 Fixed arrays: `[N]T`, `[n]T`, `array<T>`
@@ -709,6 +717,9 @@ an immutable `int` header holding the **payload size in bytes**.
   (read-only, bytes), `a.data` (§6.8), checked indexing, two-value indexing
   (§9.7), slicing, `range`, `==`/`!=`, `+`/`+=` (§9.3).
 - `sizeof([N]T) = 8 + N*sizeof(T)` plus alignment; the header is included.
+  Static type layout sizes must not overflow signed pointer width (`isize::MAX`:
+  `INT64_MAX` / `2^63 - 1` on 64-bit targets, `INT32_MAX` / `2^31 - 1` (2 GiB)
+  on 32-bit/`wasm32`); larger static types are compile errors.
 - Empty structs occupy one byte so array lengths remain recoverable.
 - Array values have **value semantics**: assignment, argument passing, and
   returns copy all elements deeply (§12).
@@ -771,7 +782,13 @@ FieldDecl   = identifier { ',' identifier } Type [ ':' int_lit ] ';' .
   such a field remain writable.
 - Every literal of a struct with value parameters must initialize all value
   parameters; a declaration of such a struct requires an initializer.
-- Recursive inline struct values are rejected; recursion must go through pointers.
+- Value-embedding type cycles (through structs, enums, tuples, fixed arrays,
+  sized buffers, or defined-type aliases) are rejected; recursion must go
+  through pointers, dynamic arrays, maps, or interfaces. The compiler reports
+  an error if recursively expanding generic payloads exceed its expansion
+  limit. Pointer fields defer validation of the pointee layout until code uses it.
+- Static type layout sizes must not exceed signed pointer width (`isize::MAX`:
+  `INT64_MAX` on 64-bit targets, `INT32_MAX` / 2 GiB on 32-bit/`wasm32`).
 - Runtime-sized buffers cannot be fields.
 - Struct values are copied by value (deeply for owned contents, §12).
 - Structs cannot be passed or returned by value through `extern` functions.
@@ -820,12 +837,23 @@ struct Flags { low uint : 4; high uint : 4; ready bool : 1; }
 Buffers are unchecked contiguous storage, used mainly for C interop.
 
 - `buffer<T, N>` — fixed-size inline storage of `N > 0` elements (constant `N`).
-- `x: buffer<T, n>` — runtime-sized stack storage, evaluated once; elements
+- `x: buffer<T, n>` — runtime-sized **block-scoped** stack storage, evaluated
+  once and live until the end of the enclosing block (repeated evaluations inside
+  a block or loop do not invalidate earlier live buffers in that block); elements
   uninitialized; no initializer allowed; not allowed for globals or in type declarations.
 - `buffer<T>` — an unsized raw pointer to elements, with no length. As a
   constraint or type-switch case it also matches buffers of element `T` of any
   size. A local unsized buffer requires an initializer (an existing buffer, an
-  extern result, or a literal, which allocates backing storage).
+  extern result, or a `buffer<T>{…}` literal, which allocates block-scoped
+  stack storage). Unsized `buffer<T>` is **non-nullable** (`null` is neither
+  assignable to nor comparable with `buffer<T>`; use `Optional<buffer<T>>`, and
+  `zero(buffer<T>)` is address `0x0`).
+- Buffers behave as indexable `*T` (for example, `*buffer<T>` is an indexable
+  `**T`).
+- Returning a stack-allocated buffer (`buffer<T, n>` or `buffer<T>{…}` literal)
+  directly (`return buf;`) emits a compiler **warning**; returning a
+  heap-allocated buffer, a stack buffer cast to `*T` (`return buf -> *T;`), or
+  its address (`return &buf;` of type `*buffer<T>`) does **not** warn.
 - `buffer` — the family of all buffers; only usable as a constraint or
   parameter type; must be narrowed (type switch) before indexing.
 - Indexing a buffer is **not** bounds-checked. Buffers have no members.
@@ -1047,7 +1075,7 @@ assignments, arguments, returns, composite elements, `+=` operands) if:
 3. `A` is `f32` and `D` is `float` (`f64`), or
 4. `D` is `any`, or `D` is an interface `A` satisfies, or `A` is itself an
    interface/`any` and `D` is an interface, or
-5. `A` is `null` and `D` is a pointer, interface, `any`, or `Optional<T>`, or
+5. `A` is `null` and `D` is an interface, `any`, `Optional<T>`, or union, or
 6. `D` is `*void` and `A` is a pointer or unsized buffer, or
 7. `D` is a type list / type-set interface `A` belongs to (§7.3), or
 8. `D` is a generic family (bare generic struct name `Box`, `buffer`,
@@ -1139,18 +1167,38 @@ are `string`.
   between layout-equivalent definitions);
 - both are numeric or `bool`:
   - int → int: truncate or sign/zero-extend according to the **source** signedness;
-  - float → int: truncate toward zero (out-of-range results are undefined);
+  - float → int: truncate toward zero, **saturating** on `NaN` (yields `0`),
+    `±Inf`, and out-of-range values to the destination type's minimum/maximum;
   - int → float: nearest representable value;
   - float → float: round to nearest;
   - number → `bool`: `true` iff the value is nonzero;
   - `bool` → number: 0 or 1;
-- both are pointers / buffers / fixed arrays (reinterpretation of address);
+- both are raw pointers or buffers (`*T ↔ *U`, `buffer<T> ↔ buffer<U>`):
+  reinterpretation of address (except between `*string` and mutable
+  pointers/buffers such as `*[]i8` or `buffer<i8>`);
+- both are fixed arrays (`[M]T → [N]U`, e.g. `[8]i32 → [4]i64`): permitted only
+  when both element types are **unowned** and total payload byte sizes are equal
+  (`M * sizeof(T) == N * sizeof(U)`); mismatched payload byte sizes and
+  cross-element `array<T> → array<U>` casts involving owned element types are
+  compile errors;
 - pointer/buffer ↔ integer (address conversion);
 - `p->buffer<T, n>` restores a length on a buffer view; `p->[n]T` views a buffer as
   an array of length `n`.
 
-Casting between pointers to `string` and pointers to mutable types is an error.
-`any`/interface values are converted with assertions (§9.8), not casts.
+Casting between pointers to `string` and pointers or buffers to mutable types
+is an error.
+For interfaces and unions:
+- Unboxing an `any`/interface value to a concrete type (`int`, `float`, `bool`,
+  `string`, structs, etc.) must use type assertions `x.(T)` or type switches
+  `x.(type)` (§9.8, §10.8), **not** `->` casts (e.g. `x->int` is invalid).
+- `->` is permitted for boxing/widening (`concrete → Iface`, `narrow → Wide`),
+  **narrowing interface-to-interface casts (`wide → Narrow`, preserving `null`
+  pass-through and trapping if a non-null dynamic type does not satisfy
+  `Narrow`)**, narrowing `Union → Union` casts (runtime-checked), and numeric
+  union conversions (`(int | float) → numeric`).
+- Inside generic bodies, `x -> T` is valid only when convertibility holds for
+  all concrete types admitted by the type parameters' constraints (§9.2), and is
+  re-verified at instantiation.
 
 ### 7.6 Zero values
 
@@ -1163,7 +1211,7 @@ Casting between pointers to `string` and pointers to mutable types is an error.
 | `[N]T` | `N` zero elements |
 | `buffer<T, N>` | `N` zero elements |
 | `map[K]V` | empty map |
-| pointer, `*void` | zero address (≠ `null`) |
+| pointer, `*void`, unsized `buffer<T>` | zero address (`0x0`) |
 | interface, `any` | `null` |
 | struct | every field (including value parameters) zero |
 | enum | variant 0 with zero payload (`Optional` → `none`) |
@@ -1243,12 +1291,13 @@ There are no named constants; `sizeof` and `zero` are compile-time constants.
 
 Semantics:
 
-- Integer `+ - *` wrap. `/` truncates toward zero; `%` has the sign of the
-  dividend; unsigned types use unsigned division/remainder.
-- **Integer division or remainder by zero, `INT_MIN / -1`, and shifts by a count
-  ≥ the operand width (or negative) are undefined behavior** (ocean-c emits raw
-  LLVM `sdiv/udiv/srem/urem/shl/ashr/lshr`; on x86-64 division by zero
-  terminates the process with SIGFPE).
+- Integer `+ - *` (and `++`/`--`) **wrap** at their width (e.g.,
+  `i64(2^63 - 1)++` wraps to `INT64_MIN`). `/` truncates toward zero; `%` has
+  the sign of the dividend; unsigned types use unsigned division/remainder.
+- Integer division or remainder by `0` raises a **recoverable panic** (§13.4).
+  Signed `INT_MIN / -1` wraps to `INT_MIN`, and `INT_MIN % -1` yields `0`.
+- Shifts (`<<`, `>>`) by a **negative** count raise a **recoverable panic**
+  (§13.4); shifts by a count `≥` the operand width yield `0`.
 - `>>` is arithmetic for signed types and logical for unsigned types.
 - Float operations follow IEEE-754 (`%`, bit operators, and `~` are not
   defined on floats).
@@ -1303,7 +1352,7 @@ parameters:
   equal to a boxed `u8` 255, although `i8` −1 `==` `u8` 255 is `true` for
   concrete operands (§9.2). This keeps boxed equality transitive and consistent
   with `map[any]` key hashing.
-- `null`: compared with pointers, interfaces, `any`, `Optional`.
+- `null`: compared with interfaces, `any`, `Optional`, and unions.
 - `*void` may be compared with any pointer.
 
 Operand types must otherwise be compatible (e.g. comparing a struct with an
@@ -1370,7 +1419,7 @@ mixed []I{…}, []interface{…}{…}, map[K]V{…}
 - **Arrays/dynamic arrays:** positional only; for `[]T` the length is the entry
   count. For `[N]T` / `buffer<T, N>`, fewer entries pad with zero values; more
   entries are an error.
-- **Unsized buffer destination:** allocates backing storage for the entries.
+- **Unsized buffer destination:** allocates block-scoped stack storage for the entries (§6.8).
 - **Structs:** positional entries fill fields in full field order (value
   parameters first); keyed entries name fields; unmentioned fields are zero;
   duplicate fields, unknown fields, and too many entries are errors; all value
@@ -1418,28 +1467,30 @@ mixed []I{…}, []interface{…}{…}, map[K]V{…}
 
 - `&x` for addressable `x` gives `*T`. Not allowed: map entries, `arr.data`,
   immutable value-parameter fields, bitfields (§6.7.1), string elements.
-- `*p` requires a typed pointer; `*void` must be cast first. Dereferencing `null` traps.
+- `*p` requires a typed pointer; `*void` must be cast first.
+- Static type layout sizes (`sizeof`) must not exceed `isize::MAX` (§6.5, §6.7).
 
 ### 9.10 Built-in functions and forms
 
 | Form | Meaning |
 |---|---|
 | `len(x)` | element count of array, dynamic array, string, map, or buffer with static length; `int` |
-| `sizeof(T)` / `sizeof(expr)` | storage size in bytes (`int`), target layout with padding; expr not evaluated; `void` is an error |
+| `sizeof(T)` / `sizeof(expr)` | storage size in bytes (`int`), target layout with padding (bounded by `isize::MAX`); expr not evaluated; `void` is an error |
 | `zero(T)` | zero value (§7.6) |
 | `new(T)` | allocate zeroed heap storage, initialize to `zero(T)`, return `*T`; each call returns a distinct allocation; `void` and `array<T>` rejected; allocation failure traps |
 | `make([]T)`, `make(map[K]V)` | empty dynamic array / map; other types rejected |
-| `free(x)` | release a dynamic array/string's storage, or a pointer's allocation (after releasing the pointee's owned contents, without following nested pointers); exactly one argument |
+| `free(x)` | release a dynamic array/string's storage, or a pointer's allocation (after releasing the pointee's owned contents, without following nested pointers); rejects `free(&local)` and `free(&global)`; exactly one argument |
 | `delete(m, k)` | remove map entry |
 | `recover()` | §11.4; returns `any`; no arguments |
 | `[n]T` (expression) | new dynamic array of `n` zero elements (`n ≥ 0`, evaluated once) |
-| `buffer<T, n>` (expression) | new raw buffer of `n` elements |
+| `buffer<T, n>` (expression) | new block-scoped raw buffer of `n` elements (§6.8) |
 
 ### 9.11 Ternary
 
 `c ? a : b`: `c` must be `bool`. `b` must be assignable to `a`'s type (or, if
-either is `*void`, both are treated as `*void`; if `a` is `null`, the result has
-`b`'s type).
+either is `*void`, both are treated as `*void`; if `a` is `null`, `b` must have
+a nullable type — `Optional<T>`, interface, `any`, or union — and the result
+has `b`'s type).
 
 ---
 
@@ -1472,7 +1523,10 @@ discard the results.
 `arr.data = src` (arrays and dynamic arrays) copies into the existing elements
 without changing length:
 
-- If `src` is a buffer, exactly `len(arr)` elements are read from it.
+- If `src` is a buffer, exactly `len(arr)` elements are read from it (`src` must
+  not be `0x0`/invalid).
+- For owned element types, overwritten elements of `arr` are destroyed and
+  copied elements are deep-copied (§12).
 - If `src` is a literal (typed or untyped), its entries are all evaluated first,
   then copied; fewer entries pad with zero values; more entries than `len(arr)`
   is a runtime bounds error.
@@ -1512,8 +1566,10 @@ ForHeader = [ Init ] ';' [ 'defer' ] [ Expr ] ';' [ Expr ]     (* three-clause *
 - **Range** over arrays, dynamic arrays, strings: `for (i, v := range x)` binds
   the index (`int`) and a copy of the element (`i8` for strings); one binding
   receives only the index. Over maps: key, value (or key only). The range
-  expression is evaluated once. The bindings are reset each iteration
-  (assigning to the index does not affect traversal).
+  expression is evaluated once and iterates over a snapshot of the collection,
+  so mutating, resizing, or freeing the original collection during the loop does
+  not invalidate traversal. The bindings are reset each iteration (assigning to
+  the index does not affect traversal).
 - Variables declared in the loop body and range bindings are fresh per
   iteration (closures capture per-iteration storage); a variable declared in
   `Init` is shared across iterations.
@@ -1690,8 +1746,9 @@ dispatches dynamically.
   `null`. `defer recover();` does not recover.
 - A panic raised inside a deferred call starts a new unwinding from there.
 - An unrecovered panic prints the diagnostic (§13.4) and exits with status 1.
-- Runtime errors that are reported as panics (map missing key, null-interface
-  method call, `unwrap` failures) are recoverable; traps (§13.4) are not.
+- Runtime errors that are reported as panics (integer division/remainder by
+  zero, negative shift counts, map missing key, null-interface method call,
+  `unwrap` failures) are recoverable; traps (§13.4) are not.
 
 ### 11.5 `return panic` and `forward panic`
 
@@ -1707,6 +1764,8 @@ dispatches dynamically.
   a `forward panic` block. Declarations inside a forwarded single statement
   remain visible in the enclosing scope.
 - The first non-forwarding caller runs its deferred calls and can `recover`.
+- The runtime releases owned arguments and receivers captured by skipped
+  deferred calls.
 
 ### 11.6 `extern` functions
 
@@ -1777,7 +1836,16 @@ Ocean has no garbage collector and no reference counting; ownership is static.
   temporaries. Returned values are copied before the callee's cleanup.
 - **Pointers and unsized buffers are non-owning**: copying copies the address;
   scope exit never frees a pointee. Memory from `new` must be released with
-  `free(p)` or it leaks.
+  `free(p)` or it leaks. Calling `free(&local)` or `free(&global)` is a compile
+  error. `free(p)` leaves the pointer value intact and invalidates all aliases
+  to that allocation. The compiler does not track freed raw pointers.
+- Accessing a released allocation or releasing the same allocation twice is
+  undefined behavior. The programmer is responsible for avoiding both.
+- Runtime `buffer<T, n>` allocations and `buffer<T>{…}` literals are
+  **block-scoped** stack views (released on block exit; repeated evaluations in
+  a loop do not invalidate earlier live views in the same block). Directly
+  returning such a stack buffer warns; returning a heap buffer, casting to `*T`,
+  or returning `&buf` (`*buffer<T>`) does not warn.
 - Captured closure variables persist until process exit.
 - Global owned values live for the whole process.
 - `free(x)` on an owned dynamic array/string releases it early; later scope
@@ -1822,8 +1890,10 @@ forward-referenced globals. Runtime-sized buffer globals are rejected.
 | `panic`, `return panic`, `unwrap` failure | `Panic: <message>` + location + call trace; recoverable |
 | Missing map key on single-value read | `Panic: map key does not exist`; recoverable |
 | Method call on null interface | `Panic: method call on null interface`; recoverable |
-| Failed single-value type assertion; enum extraction of the wrong variant; dereferencing `null` | **trap** (abnormal termination) |
-| Integer division by zero, overflow of `INT_MIN / -1`, oversized shifts, out-of-range float→int, unchecked buffer access out of bounds | undefined behavior |
+| Integer division or remainder by zero | `Panic: ...`; recoverable |
+| Negative shift count | `Panic: ...`; recoverable |
+| Failed single-value type assertion; enum extraction of the wrong variant; narrowing interface cast failure | **trap** (abnormal termination) |
+| Unchecked buffer access out of bounds, invalid pointer dereference, C FFI misuse | undefined behavior |
 | Runtime violation of homogeneous-array or interface conformance | trap/abort |
 
 Diagnostic format (stderr): a header line, `  --> file:line:col`, the source line
@@ -1852,8 +1922,26 @@ executable. File paths are relative to the compiler's working directory.
 - `ocean build [--check|--emit-llvm|--static|-s] [-o out] [location]`,
   `ocean run [-s] location [args…] [-- literal args]`, `ocean check [location]`,
   `ocean check --lsp`, `ocean test [locations…]`, `ocean mod init [name]`,
-  `ocean clean --cache`, `ocean fix [locations…]`, `ocean -v|--version`,
+  `ocean fetch [<url>[@version]]`, `ocean clean --cache`,
+  `ocean fix [locations…]`, `ocean -v|--version`,
   `ocean target --list`, `ocean target [--remove] <target>...`.
+- `ocean fetch`:
+  - `ocean fetch <url>[@version]` (where `@version` is `@latest` or a git tag;
+    defaults to `latest` if omitted): clones the remote dependency with git hooks
+    disabled (`-c core.hooksPath=/dev/null`, `GIT_TERMINAL_PROMPT=0`) into
+    `$OCEAN_MOD_CACHE` / `$HOME/.cache/ocean/modules`, adds/updates `ocean.mod`,
+    and records the dependency's deterministic SHA-256 checksum (computed over
+    sorted relative file paths and contents, excluding `.git/`) in `ocean.sum`.
+  - If `<url>` is already declared in `ocean.mod` and no `@version` is passed,
+    fetches the version recorded in `ocean.mod` without altering `ocean.mod`.
+  - Bare `ocean fetch` follows the dependency declarations in the root
+    `ocean.mod` and in each dependency's `ocean.mod`. An explicit fetch follows
+    the selected dependency's declarations. Each module's manifest supplies
+    its own dependency versions and replacements. Only the root project's
+    `ocean.sum` records the checksums of fetched dependencies.
+  - `ocean build`/`check`/`test` verify cached external dependencies against the
+    root project's `ocean.sum` and refuse to compile if any dependency is
+    missing or modified.
 - `ocean fix` rewrites the removed postfix type syntax to prefix syntax in place.
   A location is a package directory, an Ocean file (its directory), or `dir/...`
   (every directory below `dir` containing `.oc` files, skipping hidden
@@ -1876,7 +1964,8 @@ executable. File paths are relative to the compiler's working directory.
   `aarch64`; and `OCOS=js OCARCH=wasm` targets `wasm32-unknown-unknown`.
   Executing code via `run` or `test` is restricted to the host target.
 - `ocean target --list` lists available target names along with their `OCOS`
-  and `OCARCH` pairs. `ocean target <target>...` downloads and installs managed
+  and `OCARCH` pairs and whether the available toolchain can compile and link
+  for each target. `ocean target <target>...` downloads and installs managed
   toolchain components for the specified targets, and
   `ocean target --remove <target>...` uninstalls them. Explicit target builds
   automatically pick up these managed components. `OCEAN_TARGET_DIR` overrides
@@ -1895,7 +1984,12 @@ executable. File paths are relative to the compiler's working directory.
   `os.setArgs`) are recognized only when declared in
   the corresponding package located physically under the standard-library root;
   calls to the underlying `compilerReflect*`/`compilerThread*` names from any
-  other code are errors.
+  other code are errors. In standard-library `threads`, repeated and concurrent
+  `Await` calls on a worker succeed. The runtime joins the native thread once,
+  and `IsDone` keeps reporting completion for that ID until process shutdown.
+  `Mutex`/`WaitGroup` provide explicit `Destroy()`/`Close()` cleanup. Call them
+  after all threads have finished using the object. Closing an already closed
+  object or calling another operation on it panics.
 
 ---
 

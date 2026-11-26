@@ -14,6 +14,7 @@ Command | What it does
 `ocean target --list` | Show available compilation targets alongside their `OCOS`/`OCARCH` pairs
 `ocean target [--remove] <target>…` | Download or uninstall managed toolchain bundles for one or more targets
 `ocean mod init [name]` | Create `ocean.mod` in the current directory
+`ocean fetch [<url>[@version]]` | Download external modules into the cache, update `ocean.mod`, and record checksums in `ocean.sum`
 `ocean fix [locations…]` | Rewrite old postfix type syntax to the current prefix syntax, in place
 `ocean clean --cache` | Delete the build cache
 `ocean check --lsp` | Start the language server for editors
@@ -69,7 +70,7 @@ The cache key covers the source files, the compiler version, the toolchain, and 
 Variable | Purpose
 `OCEAN_SRC` | Use this standard-library directory instead of the installed one
 `OCEAN_BUILD_CACHE` | Build cache directory, or `off`
-`OCEAN_MOD_CACHE` | Where downloaded modules are stored (default `~/.cache/ocean/modules`)
+`OCEAN_MOD_CACHE` | Where downloaded modules are stored (default `$HOME/.cache/ocean/modules`; fails if neither is set)
 `OCOS`, `OCARCH` | Target operating system and CPU architecture; both must be specified together
 `OCEAN_CLANG` | Override Clang with a specific executable or wrapper script
 `OCEAN_SYSROOT` | Path to a native target sysroot providing headers and libraries
@@ -139,10 +140,16 @@ replace github.com/example/collections => ../collections
 @after
 `module` names the module. `ocean` records the language version. `require` lists dependencies and the version of each, which is a Git tag or branch name. `replace` substitutes a different source for a dependency: a local directory (which must contain its own `ocean.mod`) or another module and version. `require` and `replace` can be written on one line or as parenthesized blocks. Paths may be quoted, and `//` starts a comment. A `go <version>` directive is an error.
 
---- external | External modules
-To use another module, add it to `require` and import its packages by their full path, for example `import "github.com/example/collections/list";`. The first build downloads the repository with Git over HTTPS and stores it in `~/.cache/ocean/modules/<module>@<version>`, where later builds reuse it. `OCEAN_MOD_CACHE` moves this directory.
+--- external | External modules and ocean fetch
+External modules are declared in `ocean.mod` and fetched explicitly with `ocean fetch` rather than automatically during compilation. Running `ocean build`, `ocean check`, or `ocean test` never downloads remote repositories.
 
-Modules are fetched directly from their Git repositories; there is no central module proxy. An import of the form `host/owner/repository/...` that isn't listed in `require` is fetched from the repository's default branch, which is convenient for experiments, but declare versions for anything you want to build reproducibly.
+Run `ocean fetch <url>[@version]` (where `@version` is `@latest` or a Git tag, defaulting to `latest`) to clone a module into `$OCEAN_MOD_CACHE` (or `$HOME/.cache/ocean/modules/<module>@<version>`, failing if neither is set), add or update its `require` entry in `ocean.mod`, and record its SHA-256 checksum in the root project's `ocean.sum`. If `<url>` is already declared in `ocean.mod` and no `@version` is given, `ocean fetch <url>` fetches the recorded version without editing `ocean.mod`. Running bare `ocean fetch` fetches every dependency declared in the root `ocean.mod` and transitively in each dependency's `ocean.mod`, recording all checksums in the root `ocean.sum`.
+```code Terminal
+ocean fetch github.com/example/collections@v1.2.3
+ocean fetch
+```
+@after
+Modules are cloned directly from their Git repositories with Git hooks and interactive prompts disabled; there is no central module proxy. Each entry in `ocean.sum` is a deterministic SHA-256 checksum over the module's sorted relative file paths and contents (excluding `.git/`). During `ocean build`, `ocean check`, and `ocean test`, the compiler verifies every cached external dependency against `ocean.sum` and refuses to compile if a dependency is missing from the cache, absent from `ocean.sum`, or modified since download.
 
 --- local | Working on two modules at once
 `replace` with a local path is the way to develop a library and an application together: the application builds against your working copy of the library instead of a downloaded version.

@@ -241,7 +241,7 @@ title: threads
 desc: Run functions concurrently on native operating-system threads.
 
 --- spawn | Starting and waiting for threads
-`threads.Spawn(job)` starts a function or closure on a new operating-system thread and returns a thread ID. `threads.Await(id)` waits until that thread has finished, and `threads.IsDone(id)` checks without waiting. `threads.CurrentID()` returns the calling thread's ID; the main thread is 0. IDs are never reused, and passing an unknown ID to any function panics.
+`threads.Spawn(job)` starts a function or closure on a new operating-system thread and returns a thread ID. `threads.Await(id)` waits until that thread has finished, and `threads.IsDone(id)` checks without waiting. Repeated and concurrent `Await` calls on the same worker succeed: the runtime joins the native thread once, and `IsDone` continues to report completion for that ID until process shutdown. `threads.CurrentID()` returns the calling thread's ID; the main thread is 0. IDs are never reused, and passing an unknown ID to any function panics.
 ```code
 // check: run
 // expect: 4
@@ -325,6 +325,8 @@ func main() {
 
 --- rules | Using them correctly
 Both types work as soon as they are declared; no initialization is needed. Their methods use pointer receivers, and they must stay at a fixed location: never copy a mutex or wait group after you start using it, and pass it to functions as a pointer. A wait group can be reused only after every earlier `Wait` call has returned.
+
+Both `Mutex` and `WaitGroup` provide `Destroy()` and `Close()` to release their native resources explicitly once all threads have finished using the object. Calling `Destroy()` or `Close()` more than once, or calling any other method on a closed object, panics. Process shutdown cleans up any objects that are still open.
 
 === library/mem
 group: Standard library
