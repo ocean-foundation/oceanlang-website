@@ -139,9 +139,9 @@
   {
    title: 'Copy a dynamic array',
    file: 'values.oc',
-   code: 'package main;\n\nimport "io";\n\nfunc main() {\n    original := int[]{1, 2, 3};\n    copy := original;\n    copy[0] = 42;\n\n    io.Println(original);\n    io.Println(copy);\n}',
+   code: 'package main;\n\nimport "io";\n\nfunc main() {\n    original := []int{1, 2, 3};\n    copy := original;\n    copy[0] = 42;\n\n    io.Println(original);\n    io.Println(copy);\n}',
    output: '[1 2 3]\n[42 2 3]',
-   explanation: 'Change the copy, keep the original. Each array has its own data.'
+   explanation: 'Change the copy, keep the original. Each dynamic array has its own data.'
   },
   {
    title: 'Use a generic struct',
