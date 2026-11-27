@@ -1,18 +1,18 @@
 # The Ocean Programming Language — Specification
 
-This document specifies the Ocean language as implemented by `ocean-c`, the
-pre-bootstrapping compiler in this repository. It is written so that an
+This document specifies the Ocean language as implemented by `ocean`, the
+self-hosted compiler in `ocean-foundation/ocean`. It is written so that an
 independent implementation can reproduce the same accepted programs, the same
 rejected programs (in kind, not necessarily in diagnostic wording), and the same
 observable runtime behavior.
 
-**Authority.** Where this document and other prose (README, `types.txt`, the
-website, the editor skill) disagree, this document follows the compiler's actual
-behavior, which was verified by reading the scanner, parser, semantic checker,
-and backend and by compiling and running probe programs. Section 17 lists the
-known places where other documentation is inaccurate.
+**Authority.** Where this document and other prose (README, the
+website, the editor skill) disagree, this document has final
+authority of the official intended behavior of the Ocean language.
+Ideally, this document should reflect the actualy behavior of the
+`ocean` compiler.
 
-**Pipeline.** Ocean-c processes a program in stages: *scan* (§2) → *parse* (§3)
+**Pipeline.** Ocean processes a program in stages: *scan* (§2) → *parse* (§3)
 → *package resolution and name qualification* (§4) → *semantic check* (§5–§12)
 → *backend lowering to LLVM IR* → *native compile and link via Clang*. Some
 constructs are accepted by an early stage and rejected by a later one; such
@@ -28,7 +28,9 @@ defined elsewhere.
 ## 1. Source text
 
 - A source file is a byte sequence interpreted as UTF-8. Invalid UTF-8 inside
-  identifiers, character literals, or string literals is a compile error.
+  identifiers, character literals, or interpreted string literals is a compile
+  error; raw NUL bytes (`0x00`) are rejected inside character and string
+  literals (including raw strings).
 - Ocean source files have the extension `.oc`.
 - Line terminator is `\n`; `\r` is treated as whitespace. Diagnostics report
   1-based line and column numbers (columns count bytes).
@@ -88,14 +90,15 @@ Reserved spellings with restrictions:
 ### 2.4 Operators and punctuation
 
 ```
-{  }  (  )  [  ]  ;  ,  .  :  ?  `  ->  =>
+{  }  (  )  [  ]  ;  ,  .  :  ?  ->  =>
 +  -  *  /  %  ^  &  |  ~  !  <  >  <<  >>  &&  ||  ==  !=  <=  >=
 =  +=  -=  *=  /=  %=  ^=  &=  |=  <<=  >>=  ++  --
 ```
 
 - The scanner is greedy (maximal munch). `...` is three `.` tokens; the parser
   recognizes three consecutive dots as an ellipsis.
-- In type-argument lists, a `>>` token closes two angle brackets (§3.3).
+- In type-argument lists, `>>`, `>=`, and `>>=` split so their leading `>`
+  closes an angle bracket (§3.3).
 
 ### 2.5 Integer literals
 
@@ -110,14 +113,16 @@ int_lit     = decimal | '0x' hex_digits | '0X' hex_digits
 - The magnitude may have at most 8,388,608 bits (the maximum parameterized
   integer width, §6.2); a longer literal is an error. Decimal, hexadecimal,
   binary, and octal literals all keep their exact value.
-- A literal whose magnitude fits in `INT64_MAX` is an *untyped integer* that
-  defaults to `int` (§7.4). One that exceeds `INT64_MAX` but fits in 64 bits has
-  type `uint`. One that exceeds 64 bits has type `varuint(k)`, where `k` is the
-  bit length of the magnitude (`18446744073709551616` and `0x1ffffffffffffffff`
-  are `varuint(65)`).
-- A negated literal below the `int` range has type `varint(k)` with the
+- All integer literals (including negated literals) are *untyped integers* that
+  adapt to any contextual numeric type they fit (§7.4). When no context
+  constrains the type, a literal whose magnitude fits in `INT64_MAX` defaults to
+  `int`; one that exceeds `INT64_MAX` but fits in 64 bits defaults to `uint`;
+  one that exceeds 64 bits defaults to `varuint(k)`, where `k` is the bit length
+  of the magnitude (`18446744073709551616` and `0x1ffffffffffffffff` default to
+  `varuint(65)`).
+- A negated literal below the `int` range defaults to `varint(k)` with the
   smallest `k` that holds it (`-9223372036854775809` and
-  `-18446744073709551616` are `varint(65)`).
+  `-18446744073709551616` default to `varint(65)`).
 - `-9223372036854775808` (a `-` immediately applied to the literal
   `9223372036854775808`) is folded to the `int` value `INT64_MIN`.
 
@@ -126,9 +131,9 @@ int_lit     = decimal | '0x' hex_digits | '0X' hex_digits
 ```
 float_lit = digits '.' digits [ exponent ]
           | digits exponent
-          | '0x' hex_digits '.' hex_digits
-          | '0b' bin_digits '.' bin_digits
-          | '0o' oct_digits '.' oct_digits .
+          | ( '0x' | '0X' ) hex_digits '.' hex_digits
+          | ( '0b' | '0B' ) bin_digits '.' bin_digits
+          | ( '0o' | '0O' ) oct_digits '.' oct_digits .
 exponent  = ( 'e' | 'E' ) [ '+' | '-' ] decimal_digits .   (* decimal only *)
 ```
 
@@ -150,7 +155,8 @@ source character) or the escape's value. `''` and an unterminated literal are er
 
 - **Interpreted**: `"..."`. May not contain an unescaped newline. Escapes are
   decoded (§2.9). Non-ASCII source characters are copied as their UTF-8 bytes.
-- **Raw**: `` `...` ``. Any bytes except `` ` ``, including newlines; no escapes.
+- **Raw**: `` `...` ``. Any bytes except `` ` `` and NUL (`0x00`), including
+  newlines; no escapes and no UTF-8 validation.
 
 The literal's value is the sequence of decoded bytes. **No terminating NUL is
 added**; write `"\0"` explicitly when a C API needs one. Both forms have type `string`.
@@ -207,15 +213,12 @@ TopLevelDecl = FuncDecl | MethodDecl | ExternDecl | VarDecl ';'
              | TypeDecl | StructDecl | EnumDecl | InterfaceDecl .
 ```
 
-Any other statement at file scope is rejected. (`return`, `panic`, `defer`,
-`goto`, `asm`, `forward panic` are syntax errors outside functions; other
-statements such as `if` are rejected later.)
+Any other statement at file scope is a syntax error.
 
 ### 3.3 Types
 
 Types are written with the following grammar. **Every type modifier is a prefix
-that applies to the entire type written after it.** (The compiler stores types as
-token spans and interprets them during checking, so some syntactically valid
+that applies to the entire type written after it.** (Some syntactically valid
 spellings are semantically invalid; see §6.)
 
 ```
@@ -249,25 +252,13 @@ Notes:
   written directly: `[]map[string]int` (array of maps), `map[string][]int` (map
   to arrays), `[]func() int` (array of functions), and `func() []int` (a function
   returning an array).
-- **Removed postfix syntax.** A `[` or `*` directly after a complete type is the
-  old postfix syntax (`int[]`, `T[N]`, `T*`, `int*[]`), as is a bracket after
-  `buffer<T>` (`buffer<T>[N]`). The compiler rejects it with a syntax error that
-  names the prefix spelling:
-  - `Square brackets go before the type for an array. Did you mean '[]int'?`
-    (any form involving array brackets; `T*[]` suggests `[]*T`; `int[3][2]`
-    suggests `[2][3]int`, preserving meaning);
-  - `The pointer star goes before the type. Did you mean '*T'?`
-    (`varint(4)[2]` suggests `[2]varint(4)`, and `varuint(8)*` suggests
-    `*varuint(8)`);
-  - `A buffer's size is its second type argument. Did you mean 'buffer<int, 4>'?`.
-  In expressions, `Type[...]{…}`, `Type[...]`, `buffer<T>[n]`, `Name<…>[n]`, and
-  `T[n]` where `T` is a built-in type name are reported by the parser; `T[n]`
-  where `T` names a user-defined type (an index expression on a type) is
-  reported by the type checker with the same message. Because an index always
-  needs an expression, `x[]` in an expression is always reported this way.
-  `ocean fix` (§15) rewrites all of these.
-- **Angle-bracket closing.** When closing nested type arguments, a `>>` token is
-  split into two `>`.
+- **Removed postfix syntax.** A `[` or `*` directly after a complete type
+  (`int[]`, `T[N]`, `T*`, `int*[]`), or a bracket after `buffer<T>`
+  (`buffer<T>[N]`), is rejected as a syntax error; use prefix syntax instead
+  (`[]int`, `[N]T`, `*T`, `[]*T`, `buffer<T, N>`). `ocean fix` (§15) rewrites
+  legacy postfix types to prefix syntax.
+- **Angle-bracket closing.** When closing type arguments, `>>` splits into two
+  `>`, `>=` into `>` and `=`, and `>>=` into `>`, `>`, and `=`.
 - **Casts** (`->`) accept, without parentheses, a single-token type (`int`,
   `MyType`, `any`), `varint(n)`/`varuint(n)`, `buffer<…>`, or a
   bracket-prefixed array type (`x->[n]int`);
@@ -282,7 +273,7 @@ ternary and assignment are right-associative.
 | Level | Operators | Notes |
 |---|---|---|
 | Postfix | `x.f` `x.(T)` `x[i]` `x[a:b]` `f(args)` `f<T>` `T{…}` `x->T` `x++` `x--` | applied left to right |
-| Unary (prefix) | `-x` `!x` `~x` `*x` `&x` `++x` `--x` `sizeof(…)` | |
+| Unary (prefix) | `-x` `!x` `~x` `*x` `&x` `++x` `--x` | |
 | 10 | `*` `/` `%` | |
 | 9 | `+` `-` | |
 | 8 | `<<` `>>` | |
@@ -312,10 +303,12 @@ Operand     = literal | identifier | '_' | 'any' | 'null'
             | 'extern' '.' identifier
             | FuncLit
             | CompositeLit                      (* untyped: { ... } *)
-            | ('mixed' | 'interface') Type CompositeBody
+            | 'mixed' '[' ']' Type [ CompositeBody ]
+            | 'interface' '{' InterfaceBody '}' [ CompositeBody ]
             | 'map' '[' Type ']' Type CompositeBody
             | ArrayType [ CompositeBody ]        (* []int{...}, [n]T allocation, [...]T{...} *)
             | 'buffer' '<' Type [ ',' BufferSize ] '>' [ CompositeBody ]
+            | 'sizeof' '(' ( Type | Expr ) ')'
             | ('zero' | 'new' | 'make') '(' Type ')' .
 ArrayType   = '[' [ Dimension | '...' ] ']' Type .
 Postfix     = '.' identifier
@@ -323,7 +316,7 @@ Postfix     = '.' identifier
             | '.' '(' 'type' ')'                      (* only in a type-switch header *)
             | '[' Expr ']' | '[' [ Expr ] ':' [ Expr ] ']'
             | TypeArgs                                (* see disambiguation *)
-            | '(' [ Arg { ',' Arg } ] ')'
+            | '(' [ Arg { ',' Arg } [ ',' ] ] ')'
             | CompositeBody                           (* only after a name, a.b, or x<…> *)
             | '->' CastTarget | '++' | '--' .
 Arg         = AssignExpr [ '...' ] .                  (* only the last argument may be spread *)
@@ -332,10 +325,11 @@ Entry       = AssignExpr [ ':' AssignExpr ] .        (* all keyed or all positio
 FuncLit     = 'func' Params [ Results ] Block .
 ```
 
-**Type-argument disambiguation.** In an expression, `<` after an operand is
-tried as a type-argument list. It is accepted as type arguments only if the
-tokens parse as a comma-separated list of types closed by `>` (or the first half
-of `>>`) **and** the following token is one of
+**Type-argument disambiguation.** In an expression, `<` after an identifier or
+member expression is tried as a type-argument list. It is accepted as type
+arguments only if the tokens parse as a comma-separated list of types closed by
+`>` (nested type arguments may split `>>`, `>=`, or `>>=`, but the outer closing
+`>` must not leave a pending split token) **and** the following token is one of
 `( { [ ; , ) ] } . => ` or end of input. Otherwise `<` is the less-than operator.
 
 **Array types in expressions.** An operand that starts with `[` is a type. With
@@ -349,9 +343,8 @@ argument is present or that has a literal body is treated as a type in
 expression position; a variable named `buffer` remains an ordinary value
 (`buffer[1]`).
 
-**`sizeof`.** `sizeof` followed by `(` parses a parenthesized expression. If the
-operand denotes a type (a type name, `*T`, `Name<…>`, `[]T`, `[N]T`,
-`buffer<T, N>`), it is `sizeof(Type)`; otherwise `sizeof(value)`.
+**`sizeof`.** `sizeof(T)` takes a type and `sizeof(expr)` takes a value
+expression.
 
 **`zero`, `new`, `make`.** `zero(T)` is always builtin syntax. `new(T)` is
 builtin when the parenthesized content is a type. `make(T)` is builtin when `T`
@@ -359,14 +352,14 @@ begins with `[` or `map`. A variable named `zero` is still allowed elsewhere.
 
 **Comma and simultaneous assignment.** In an expression list `a, b = x, y`, the
 parser rewrites `targets , … = values , …` into a single simultaneous
-assignment when every item before `=` is an identifier, index, member, unary,
-or instantiation expression.
+assignment when every item before `=` is an identifier, `_`, index, member,
+unary, or instantiation expression.
 
 ### 3.5 Statements
 
 ```
 Statement  = Block | VarDecl ';' | SimpleStmt ';' | IfStmt | ForStmt | SwitchStmt
-           | MatchStmt | ReturnStmt | 'panic' Expr ';' | 'return' 'panic' Expr ';'
+           | MatchStmt | ReturnStmt | 'panic' AssignExpr ';' | 'return' 'panic' AssignExpr ';'
            | 'forward' 'panic' Statement | DeferStmt | LabeledStmt
            | 'break' [ identifier ] ';' | 'continue' [ identifier ] ';'
            | 'goto' identifier ';' | 'fallthrough' ';' | AsmStmt
@@ -388,9 +381,9 @@ LabeledStmt = identifier ':' Statement .
   Otherwise it is a label. To label an ambiguous statement, use a block:
   `name: { … }`.
 - `forward` is contextual: it is a keyword only when directly followed by `panic`.
-- `var` is not a keyword; there is no `var x = …` form.
 - Named function declarations inside a function body parse but are rejected by
-  the backend (*unsupported*). Use a function literal assigned to a variable.
+  the semantic checker (*unsupported*). Use a function literal assigned to a
+  variable.
 - `func` at statement start inside a function followed by `(` begins an
   expression statement (an immediately invoked literal).
 
@@ -431,9 +424,14 @@ A directory containing `ocean.mod` is a module root. The nearest enclosing
 module <module-path>
 ocean <version>                       // accepted without version enforcement
 require <module-path> <version>
-require ( <module-path> <version> ... )
-replace <module-path> => <directory-or-module> [<version>]
-replace ( ... )
+require (
+    <module-path> <version>
+    ...
+)
+replace <module-path> [<version>] => <directory-or-module> [<version>]
+replace (
+    ...
+)
 ```
 
 A module path consists of `/`-separated non-empty segments of
@@ -447,15 +445,20 @@ An import path `P` from a package in module `M` resolves to the first of:
    directory under `M`'s root.
 2. If `M.root/P` is a directory: that directory (module-relative import).
 3. The standard library: `$OCEAN_SRC/P` if `OCEAN_SRC` is set, otherwise
-   `<compiler-executable-dir>/../src/P`.
+   `<compiler-executable-dir>/../src/P` if that directory exists, otherwise
+   `/usr/local/lib/ocean/src/P`.
 4. An external module: the longest `require`/`replace` entry in `ocean.mod` that is
-   a prefix of `P`. Unknown external modules are **not** automatically fetched
+   a prefix of `P` (or, if none matches and the first segment of `P` contains
+   `.`, the first up to three `/`-separated segments at version `latest`).
+   Unknown external modules are **not** automatically fetched
    during compilation (`build`, `check`, or `test`); declare and fetch remote
    dependencies explicitly via `ocean fetch` (§15). A `replace` to a path
    starting with `.` or `/` uses that local directory (relative to the module
-   root); otherwise the module is resolved from the module cache
-   (`$OCEAN_MOD_CACHE`, or `$HOME/.cache/ocean/modules/<module>@<version|latest>`;
-   failing if neither is set rather than falling back to `/tmp`) and verified
+   root); otherwise the module is resolved from
+   `<cache-root>/<module>@<version|latest>` (where `<cache-root>` is
+   `$OCEAN_MOD_CACHE`, or `$HOME/.cache/ocean/modules`, or
+   `$LOCALAPPDATA/.cache/ocean/modules` on Windows; failing if none is set
+   rather than falling back to `/tmp`) and verified
    against the root project's `ocean.sum` (deterministic SHA-256 checksum over
    the sorted relative file paths and file contents, excluding `.git/`).
    A slash in a version is encoded as `%2F` in the cache directory name.
@@ -519,7 +522,7 @@ blocks. A block is introduced by `{…}`, and also implicitly by `if`, `for`,
 - Within one scope, two declarations with the same name are an error
   ("duplicate declaration"). An inner scope may shadow outer names.
 - `_` declares nothing.
-- **Order within a block.** Functions, structs, type declarations, enums, and
+- **Order within a block.** Structs, type declarations, enums, and
   interfaces declared in a block are visible throughout that block (they are
   pre-declared). Variables are visible only after their declaration.
 - **Package scope.** All top-level names are visible throughout the package
@@ -531,10 +534,10 @@ blocks. A block is introduced by `{…}`, and also implicitly by `if`, `for`,
 
 ### 5.2 Predeclared value-like identifiers
 
-`true` and `false` (type `bool`) are recognized by name. The builtin functions
-`len`, `free`, `delete`, `recover` are recognized only when no user
-declaration of that name is in scope; a local variable named `len` shadows the
-builtin.
+`true` and `false` (type `bool`) and the builtin functions `len`, `free`,
+`delete`, `recover` are predeclared in universe scope and recognized only when
+no user declaration of that name is in scope; a local variable named `len` (or
+`true`) shadows the predeclared name.
 
 ### 5.3 Variable declarations
 
@@ -544,7 +547,7 @@ x: T;                      // zero-initialized (§7.6)
 x: T = expr;
 a, b := e1, e2;            // one initializer per name
 a, b := f();               // one multi-result call supplies all
-v, ok := m[k];             // checked forms (§9.4, §9.7)
+v, ok := m[k];             // checked forms (§9.4, §9.8)
 _, y := f();
 ```
 
@@ -592,13 +595,13 @@ or `rune` types (those names are ordinary identifiers, and a program may
 declare them, e.g. `type byte = u8;`). Using an undeclared `byte` or `rune` as
 a type is an "unresolved type" error.
 
-**Unsupported:** `chan T`; anonymous `struct {…}` type expressions. Structs cannot
-be indexed.
+**Unsupported:** anonymous `struct {…}` type expressions. Structs cannot be
+indexed.
 
 ### 6.2 Numeric types
 
 - Integers are two's complement with the stated width. `bool` is 1 bit of
-  information (stored as LLVM `i1`).
+  information.
 - `float` is IEEE-754 binary64; `f32` binary32.
 - Arithmetic on integers **wraps** modulo 2ⁿ of the operation's type.
 
@@ -607,8 +610,7 @@ be indexed.
 `varint(n)` is a signed two's-complement integer of exactly `n` bits, including
 the sign bit, with range −2ⁿ⁻¹ through 2ⁿ⁻¹−1. `varuint(n)` is unsigned, with
 range 0 through 2ⁿ−1. The width `n` must be an integer literal from 1 through
-8,388,608 (LLVM's maximum integer width); a name, constant expression, or
-out-of-range width is a syntax error.
+8,388,608; a name, constant expression, or out-of-range width is a syntax error.
 
 ```
 small: varint(4) = -3;
@@ -624,7 +626,6 @@ mask := 0xff->varuint(12);
 - **Named types.** `type nibble varint(4);` defines a distinct type, converted
   with `3->nibble` and `x->int`. Untyped literals do not convert to it
   (§7.2). An alias `type nibble = varint(4);` is identical to `varint(4)`.
-  Prefer a named type over repeating a width.
 - **Storage.** A value occupies the target ABI's allocation size and alignment
   for an `n`-bit integer, which is always whole bytes. On x86-64,
   `sizeof(varint(1))` and `sizeof(varint(4))` are 1, `sizeof(varint(12))` is 2,
@@ -640,17 +641,8 @@ mask := 0xff->varuint(12);
   map, and buffer elements (`[3]varint(4)`, `[]varuint(8)`, `*varint(12)`), and
   struct fields, including bitfields (§6.7.1).
 - **Boxing.** Boxing in `any` preserves the exact type, so `boxed.(varuint(128))`
-  recovers it. Values wider than 64 bits are boxed in owned heap storage that is
-  copied with the box. A type guard for a parameterized integer must name
-  an exact width, such as `case varuint(128):`.
-- **Reflection and formatting.** `reflect.VarIntegerDecimal(value any) string`
-  returns the exact base-10 representation of a boxed parameterized integer,
-  including a named type whose underlying type is parameterized. Zero is
-  rendered as `0`, and negative values have a leading `-`. The result is
-  empty for other inputs, including ordinary fixed-width integers and pointers.
-  The standard-library `io` print and format functions use this conversion
-  for parameterized integers, including those in reflected struct fields and
-  enum payloads.
+  recovers it, and boxed values are copied with the box. A type guard for a
+  parameterized integer must name an exact width, such as `case varuint(128):`.
 
 ### 6.3 Strings
 
@@ -659,9 +651,10 @@ of `i8` (§6.6) whose capacity always equals its length.
 
 - `len(s)`, `s.length`, `s.capacity`, `s.size` all give the byte count.
 - `s[i]` reads the byte at `i` as an `i8` (signed), with bounds checking.
-- Strings cannot be mutated: element assignment, `&s[i]`, `append`, `prepend`,
-  `add`, `remove`, `pop`, and compound assignments other than `=` and `+=` are
-  errors. `s.data` is permitted only as a function-call argument (§11.6).
+- Strings cannot be mutated: element assignment, `&s[i]`, `s.data = …`,
+  `&s.data`, `append`, `prepend`, `add`, `remove`, `pop`, and compound
+  assignments other than `=` and `+=` are errors. `s.data` has type
+  `buffer<i8>`.
 - Reassignment and `+=` produce a new independent string.
 - `string` and `[]i8` are mutually assignable and convertible; conversion copies
   bytes (a mutable copy never aliases the string).
@@ -715,7 +708,7 @@ an immutable `int` header holding the **payload size in bytes**.
   `array` is not a type.
 - Operations: `len(a)` (element count = `a.size / sizeof(T)`), `a.size`
   (read-only, bytes), `a.data` (§6.8), checked indexing, two-value indexing
-  (§9.7), slicing, `range`, `==`/`!=`, `+`/`+=` (§9.3).
+  (§9.4), slicing, `range`, `==`/`!=`, `+`/`+=` (§9.3).
 - `sizeof([N]T) = 8 + N*sizeof(T)` plus alignment; the header is included.
   Static type layout sizes must not overflow signed pointer width (`isize::MAX`:
   `INT64_MAX` / `2^63 - 1` on 64-bit targets, `INT32_MAX` / `2^31 - 1` (2 GiB)
@@ -735,7 +728,7 @@ elements. It can grow.
 - Construct with `make([]T)` (empty), a literal `[]T{…}` or `{…}` in a `[]T`
   context, an uninitialized declaration `x: []T` (empty), `zero([]T)` (empty),
   slicing, or the expression `[count]T` (a dynamic array of `count`
-  zero-valued elements; legacy form).
+  zero-valued elements).
 - Fields: `.length`, `.capacity` (read-only `int`), `.size` (payload bytes),
   `.data` (a `buffer<T>` view of the elements).
 - Methods (not available on strings):
@@ -760,7 +753,7 @@ elements. It can grow.
   different concrete types, each satisfying `I`. A non-mixed `[]I` is
   **homogeneous**: all elements must have the same concrete type (checked at
   compile time for literals and at runtime otherwise). `mixed` is only valid
-  before an array type ending in `[]` whose element is an interface.
+  before a dynamic array type `[]I` whose element is an interface.
 
 ### 6.7 Structs
 
@@ -787,11 +780,9 @@ FieldDecl   = identifier { ',' identifier } Type [ ':' int_lit ] ';' .
   through pointers, dynamic arrays, maps, or interfaces. The compiler reports
   an error if recursively expanding generic payloads exceed its expansion
   limit. Pointer fields defer validation of the pointee layout until code uses it.
-- Static type layout sizes must not exceed signed pointer width (`isize::MAX`:
-  `INT64_MAX` on 64-bit targets, `INT32_MAX` / 2 GiB on 32-bit/`wasm32`).
 - Runtime-sized buffers cannot be fields.
 - Struct values are copied by value (deeply for owned contents, §12).
-- Structs cannot be passed or returned by value through `extern` functions.
+- Structs and enums cannot be passed or returned by value through `extern` functions.
 
 #### 6.7.1 Bitfields
 
@@ -850,14 +841,17 @@ Buffers are unchecked contiguous storage, used mainly for C interop.
   `zero(buffer<T>)` is address `0x0`).
 - Buffers behave as indexable `*T` (for example, `*buffer<T>` is an indexable
   `**T`).
-- Returning a stack-allocated buffer (`buffer<T, n>` or `buffer<T>{…}` literal)
-  directly (`return buf;`) emits a compiler **warning**; returning a
+- Returning a stack-allocated buffer (`buffer<T, N>`, `buffer<T, n>`, or
+  `buffer<T>{…}` literal, including via a buffer-to-buffer cast, ternary, or
+  bare `return;` with a named result) emits a compiler **warning**; assigning a
+  stack buffer view to an outer-scope local also warns. Returning a
   heap-allocated buffer, a stack buffer cast to `*T` (`return buf -> *T;`), or
   its address (`return &buf;` of type `*buffer<T>`) does **not** warn.
 - `buffer` — the family of all buffers; only usable as a constraint or
   parameter type; must be narrowed (type switch) before indexing.
 - Indexing a buffer is **not** bounds-checked. Buffers have no members.
-- `len(b)` works only on buffers with a statically known length.
+- `len(b)` works on sized buffers (`buffer<T, N>` and runtime-sized local
+  `buffer<T, n>`), except buffer parameters (whose length is erased).
 - Passing a sized buffer to a `buffer<T>` parameter passes its address; buffer
   parameters erase their length. A sized cast `p->buffer<T, n>` restores length metadata.
 - Assigning or passing an unsized buffer copies the pointer (aliasing).
@@ -907,9 +901,11 @@ Field      = identifier { ',' identifier } Type .
 - **Construction:**
   - unit: `E.V` (also `E<T>.V`)
   - tuple: `E.V(a, b)` (argument count must match; spread not allowed)
-  - record: `E.V{x: 1, y: 2}` (or positional)
+  - record: `E.V{x: 1, y: 2}` (or positional; all fields must be initialized)
   - fixed: `E.V` (the variant's fixed payload is evaluated on construction)
-  - Generic enums require explicit type arguments: `Result<int>.value(42)`.
+  - Generic enums infer type arguments from context when a matching enum type is
+    expected (e.g., `return Result.value(42);`); otherwise explicit type
+    arguments are required (`Result<int>.value(42)`).
   - A tuple or record variant used without construction is an error, except as a
     comparison selector or pattern.
 - **Selector comparison:** `e == E.V` / `e != E.V` tests only the tag. Comparing
@@ -963,7 +959,8 @@ type list; mixing them is an error.
   and its dynamic type. Their zero value is `null`. Calling a method on a null
   interface panics ("method call on null interface").
 - Method calls on interface values dispatch to the concrete receiver.
-- Interfaces with type parameters cannot be satisfied as value types.
+- Uninstantiated generic interfaces cannot be satisfied as value types
+  (instantiated generic interfaces such as `Reader<int>` can).
 
 ### 6.12 Built-in `Result<T>` and `Optional<T>`
 
@@ -1019,9 +1016,9 @@ TypeDecl = 'type' identifier [ '=' ] Type ';' .
 - `type N = T` (**alias**) is another name for exactly `T` (shares methods,
   identity, everything). Generic arguments may be applied through an alias to a
   generic struct.
-- `void` cannot underlie a definition. Runtime-sized buffers cannot be used in
-  type declarations. Cyclic aliases and cyclic definitions not broken by
-  indirection (pointer, array, map, etc.) are errors.
+- `void` cannot underlie a definition. Runtime-sized buffers and runtime-sized
+  arrays `[n]T` cannot be used in type declarations. Cyclic aliases and cyclic
+  definitions not broken by indirection (pointer, array, map, etc.) are errors.
 - Type declarations may appear in function bodies (block-scoped).
 
 ### 6.15 Generics
@@ -1075,15 +1072,19 @@ assignments, arguments, returns, composite elements, `+=` operands) if:
 3. `A` is `f32` and `D` is `float` (`f64`), or
 4. `D` is `any`, or `D` is an interface `A` satisfies, or `A` is itself an
    interface/`any` and `D` is an interface, or
-5. `A` is `null` and `D` is an interface, `any`, `Optional<T>`, or union, or
+5. `A` is `null` and `D` (or its underlying type) is an interface, `any`,
+   `Optional<T>`, or union, or
 6. `D` is `*void` and `A` is a pointer or unsized buffer, or
 7. `D` is a type list / type-set interface `A` belongs to (§7.3), or
 8. `D` is a generic family (bare generic struct name `Box`, `buffer`,
    `buffer<T>`, `array<T>`) that `A` belongs to (§7.3), or
 9. `A` and `D` are `string` and `[]i8` (either direction; copies), or
-10. arrays, buffers, and dynamic arrays of the same kind whose element types are
-    compatible and, for integers, convert exactly in the element direction, with
-    equal static lengths. (`[]i8` is **not** assignable to `[]i32`.)
+10. buffers and fixed arrays of the same kind with identical element types and
+    equal static lengths (or length erasure such as `[2][2]int` →
+    `array<array<int>>` and `array<any>`); or dynamic arrays where either the
+    element types are identical, `[]C` → `[]I` / `mixed []I` (when `C` satisfies
+    `I`), `[]I1` → `[]I2` (interface element types), or `[]I` → `mixed []I`.
+    (`[]i8` is **not** assignable to `[]i32`.)
 11. A fixed array `[N]T` is assignable to `array<T>`; an unsized-buffer
     destination accepts a sized buffer (by address).
 
@@ -1102,9 +1103,10 @@ to any floating type (they become float literals). Literals out of range are an
 error ("integer literal is out of range"). An integer literal of any width
 becomes a float rounded once, to nearest-even, directly to the destination width.
 A literal too large for that width becomes infinity with a warning ("integer
-literal is out of range for f32 and becomes infinity"); this also applies to an
-explicit `->f32` cast. An explicit `->f64` (or `->float`) cast never warns. An untyped literal does not convert
-to a defined type.
+literal is out of range for `f32`/`f64` and becomes infinity; cast it with
+`->f64` if that is intended"); this also applies to an explicit `->f32` cast.
+An explicit `->f64` (or `->float`) cast suppresses the warning. An untyped
+literal does not convert to a defined type.
 
 An `any` value is **not** implicitly assignable to an array, dynamic array, or
 map destination; use an assertion.
@@ -1185,8 +1187,6 @@ are `string`.
 - `p->buffer<T, n>` restores a length on a buffer view; `p->[n]T` views a buffer as
   an array of length `n`.
 
-Casting between pointers to `string` and pointers or buffers to mutable types
-is an error.
 For interfaces and unions:
 - Unboxing an `any`/interface value to a concrete type (`int`, `float`, `bool`,
   `string`, structs, etc.) must use type assertions `x.(T)` or type switches
@@ -1218,19 +1218,24 @@ For interfaces and unions:
 | function | uninitialized (calling it panics) |
 
 `zero(T)` produces this value. It is rejected for `void`, `any` (the literal
-type `any`; a type parameter is fine), bare `buffer`, `array<T>`, and
-runtime-sized buffers.
+type `any`; a type parameter is fine), bare `buffer`, `array<T>`, bare generic
+families, runtime-sized arrays `[n]T`, and runtime-sized buffers.
 
 ---
 
 ## 8. Constant expressions
 
-Array/buffer dimensions in types are expressions over integer literals and
-names. A dimension that is a single integer literal is a compile-time length.
-Any other dimension is evaluated at runtime (once, at the declaration) and must
-have integer type. Negative literal counts are errors.
+Array dimensions in types are `TernaryExpr` expressions and buffer sizes are
+`AdditiveExpr` expressions (§3.3). Only a single integer literal (excluding
+character literals) is treated as a compile-time length (`[0]T` is allowed;
+`buffer<T, 0>` is an error). Any other expression — including `sizeof` — is
+evaluated at runtime (once, at the declaration) and must have integer type.
+Negative literal counts are compile-time errors for arrays; `buffer<T, -1>` is
+treated as a runtime-sized buffer.
 
-There are no named constants; `sizeof` and `zero` are compile-time constants.
+There are no named constants; `sizeof` and `zero` are evaluated at compile time
+where applicable, but are not accepted as compile-time array or buffer
+dimensions.
 
 ---
 
@@ -1403,13 +1408,13 @@ buffer<T>{…}, buffer<T, N>{…}
 mixed []I{…}, []interface{…}{…}, map[K]V{…}
 ```
 
-- A literal prefix must name an array, buffer, dynamic array, map, or struct
-  type (`[]int{…}`, `[3]int{…}`, `buffer<int, 4>{…}`, `buffer<int>{…}`,
+- A literal prefix must name an array, buffer, dynamic array, `string`, map, or
+  struct type (`[]int{…}`, `[3]int{…}`, `buffer<int, 4>{…}`, `buffer<int>{…}`,
   `Box<int>{…}`, `pkg.T{…}`). Enum record construction uses `E.V{…}`.
 - **Untyped `{…}`** takes its type from the destination only in variable
-  declarations with an explicit type and in assignments (`x: T = {…}`,
-  `x = {…}`), when nested inside another literal (element/field type), and as a
-  `.data` source. Everywhere else — inferred declarations (`x := {…}`), function
+  declarations with an explicit type, fixed enum variants with an explicit type,
+  and assignments (`x: T = {…}`, `x = {…}`), when nested inside another literal
+  (element/field type), and as a `.data` source. Everywhere else — inferred declarations (`x := {…}`), function
   arguments, `return` values, operands — it is typed **standalone** as a fixed
   array `[n]E` (n = entry count, `E` = type of the first entry) and then checked
   against the destination. So `g({1, 2})` and `return {1, 2};` fail for an
@@ -1427,7 +1432,8 @@ mixed []I{…}, []interface{…}{…}, map[K]V{…}
 - **Maps:** every entry must be `key: value`.
 - Homogeneous interface arrays (`[]I`, not `mixed`) require every element to
   have the same concrete type.
-- Allocating a non-empty interface array by count (`[n]I`) is an error; use a literal.
+- Allocating a non-empty interface array by count (`[n]I`, where `I` is not
+  `any`) is an error; use a literal.
 
 ### 9.7 Calls
 
@@ -1446,7 +1452,8 @@ mixed []I{…}, []interface{…}{…}, map[K]V{…}
   receiver is copied (also through a pointer). Generic methods need explicit
   arguments: `x.m<int>(…)`.
 - Bound method values (`f := x.m`) are unsupported.
-- Only direct calls of generic functions/methods are supported.
+- Specialized generic functions (`f<int>`) may be used as function values
+  (§6.13); generic methods can only be called directly.
 - **Extern calls** use `extern.name(args)` (§11.6).
 
 ### 9.8 Type assertions
@@ -1468,16 +1475,15 @@ mixed []I{…}, []interface{…}{…}, map[K]V{…}
 - `&x` for addressable `x` gives `*T`. Not allowed: map entries, `arr.data`,
   immutable value-parameter fields, bitfields (§6.7.1), string elements.
 - `*p` requires a typed pointer; `*void` must be cast first.
-- Static type layout sizes (`sizeof`) must not exceed `isize::MAX` (§6.5, §6.7).
 
 ### 9.10 Built-in functions and forms
 
 | Form | Meaning |
 |---|---|
-| `len(x)` | element count of array, dynamic array, string, map, or buffer with static length; `int` |
+| `len(x)` | element count of array, dynamic array, string, map, or sized buffer (except buffer parameters); `int` |
 | `sizeof(T)` / `sizeof(expr)` | storage size in bytes (`int`), target layout with padding (bounded by `isize::MAX`); expr not evaluated; `void` is an error |
 | `zero(T)` | zero value (§7.6) |
-| `new(T)` | allocate zeroed heap storage, initialize to `zero(T)`, return `*T`; each call returns a distinct allocation; `void` and `array<T>` rejected; allocation failure traps |
+| `new(T)` | allocate zeroed heap storage, initialize to `zero(T)`, return `*T`; each call returns a distinct allocation; `void`, `array<T>`, unsized/runtime-sized/bare buffers, `[...]T`, and bare generic families rejected; allocation failure traps |
 | `make([]T)`, `make(map[K]V)` | empty dynamic array / map; other types rejected |
 | `free(x)` | release a dynamic array/string's storage, or a pointer's allocation (after releasing the pointee's owned contents, without following nested pointers); rejects `free(&local)` and `free(&global)`; exactly one argument |
 | `delete(m, k)` | remove map entry |
@@ -1563,7 +1569,8 @@ ForHeader = [ Init ] ';' [ 'defer' ] [ Expr ] ';' [ Expr ]     (* three-clause *
   (including after `continue`).
 - `defer` before the condition skips **only the first** check: the body always
   runs at least once (`for (defer c) body` is a do-while).
-- **Range** over arrays, dynamic arrays, strings: `for (i, v := range x)` binds
+- **Range** over arrays, dynamic arrays, strings, and fixed-size buffers
+  `buffer<T, N>`: `for (i, v := range x)` binds
   the index (`int`) and a copy of the element (`i8` for strings); one binding
   receives only the index. Over maps: key, value (or key only). The range
   expression is evaluated once and iterates over a snapshot of the collection,
@@ -1605,8 +1612,8 @@ switch ( [ Init ';' ] [ identifier ':' '=' ] Expr '.' '(' 'type' ')' ) {
 - `x.(type)` is only valid in a switch header.
 - Cases are type constraints (§7.3), tested in source order; the first that
   matches the dynamic type runs. `case any:` matches everything.
-- With a binding, in a case with a single type term the binding has that type;
-  with several types, a union, or `default`, the binding is `any`.
+- With a binding, in a case with a single type term `T` or `~T` the binding has
+  type `T`; with several types, a union, or `default`, the binding is `any`.
 - `fallthrough` is not allowed. Enum subjects are rejected (use `match`).
 - A `case buffer<int>:` binding is an indexable view of the boxed snapshot.
 
@@ -1625,14 +1632,16 @@ RecBinding = identifier | identifier '=' identifier .     (* alias = field *)
 
 - The subject must be an enum value; it is evaluated once.
 - Each arm matches by tag. A tuple pattern must list exactly as many bindings as
-  fields (`_` to skip). A record pattern binds named fields (`field` or
-  `alias = field`). A bare variant ignores the payload.
+  fields (`_` to skip); a fixed-value variant may also be bound with a
+  single-element tuple pattern `E.V(x)`. A record pattern binds named fields
+  (`field` or `alias = field`). A bare variant ignores the payload.
 - Bindings are scoped to the arm.
 - The bare enum name is the default arm (at most one; cannot bind).
 - Duplicate variants are errors. Patterns must be of the same enum (and
   compatible type arguments). Missing variants with no default produce a
   **warning**, not an error; if no arm matches at runtime, nothing runs.
-- There is no fallthrough between arms.
+- There is no fallthrough between arms; `break` (including labeled `break L`)
+  exits the `match`.
 
 ### 10.10 `return`
 
@@ -1675,8 +1684,8 @@ Platform = 'linux' | 'macos' | 'windows' .
 - A block whose architecture (and platform, if given) does not match the build
   target is omitted without being assembled. Matching blocks execute in source order.
 - `${name}` (outside asm strings/comments) refers to a mutable local or global
-  scalar variable (integer, float, `bool`) or pointer as a **memory operand** of
-  its storage width. Repeated uses share one operand. At most 4 distinct operands
+  scalar variable (integer, float, `bool`), pointer, or unsized `buffer<T>` as a
+  **memory operand** of its storage width. Repeated uses share one operand. At most 4 distinct operands
   for `aarch64` and `riscv64`; none for `wasm`; unlimited for `x86_64`.
 - x86-64 uses Intel syntax. The block is treated as clobbering general and
   vector registers, flags, and memory. It must not return, branch out, or unwind,
@@ -1753,8 +1762,9 @@ dispatches dynamically.
 ### 11.5 `return panic` and `forward panic`
 
 - `return panic e;` raises a panic attributed to the **call site** in the
-  caller (in `main`, to the statement itself). It **skips** the current
-  function's deferred calls. Usable in functions of any result signature.
+  caller (in `main`, to the statement itself). Outside `main`, it **skips** the
+  current function's deferred calls; in `main`, deferred calls run and may
+  recover. Usable in functions of any result signature.
 - `forward panic Statement` — calls inside the statement (lexically, including
   conditions, arguments, and nested blocks) that fail with a `return panic`
   re-attribute the failure one level further out, to this function's caller, and
@@ -1794,11 +1804,12 @@ ExternParam = Type [ identifier | '_' ] .
   argument, is an error ("integers wider than 64 bits require an explicit
   narrowing cast for C interoperability"). Narrow it with `->`, or pass a pointer
   to its storage.
-- Structs cannot be passed or returned by value.
+- Structs and enums cannot be passed or returned by value.
 - `string.data` / `array.data` may be passed as a buffer argument. For strings,
   the callee receives an isolated temporary copy, valid only during the call.
 - **C variadics** (`, ...`): require at least one fixed parameter. Extra
-  arguments must be scalars or pointers and follow C's default argument
+  arguments must be scalars, pointers, buffers, strings, interfaces (`any`), or
+  type-list unions, and follow C's default argument
   promotions: `bool` and integers narrower than 32 bits become `i32`, with
   `varint(n)` sign-extended and `varuint(n)` zero-extended; other parameterized
   widths up to 64 bits widen to the next of 32 or 64 bits (so `varint(40)` is
@@ -1831,9 +1842,11 @@ Ocean has no garbage collector and no reference counting; ownership is static.
   payload, or collection containing them. Assignment, initialization, argument
   passing, return, collection insertion, and boxing copy owned values
   **deeply**; the copy is independent of the source.
-- **Scope exit** (including early `return`, `break`, `continue`, `goto`, panic)
+- **Scope exit** (including early `return`, `break`, `continue`, and panic)
   releases owned values held by locals, parameters, named results, and
-  temporaries. Returned values are copied before the callee's cleanup.
+  temporaries. Returned values are copied before the callee's cleanup. (Locals
+  in blocks exited via `goto`, or in functions containing `defer`, are released
+  at function exit or when overwritten.)
 - **Pointers and unsized buffers are non-owning**: copying copies the address;
   scope exit never frees a pointee. Memory from `new` must be released with
   `free(p)` or it leaks. Calling `free(&local)` or `free(&global)` is a compile
@@ -1843,16 +1856,18 @@ Ocean has no garbage collector and no reference counting; ownership is static.
   undefined behavior. The programmer is responsible for avoiding both.
 - Runtime `buffer<T, n>` allocations and `buffer<T>{…}` literals are
   **block-scoped** stack views (released on block exit; repeated evaluations in
-  a loop do not invalidate earlier live views in the same block). Directly
-  returning such a stack buffer warns; returning a heap buffer, casting to `*T`,
-  or returning `&buf` (`*buffer<T>`) does not warn.
+  a loop do not invalidate earlier live views in the same block). Returning a
+  stack buffer (`buffer<T, N>`, `buffer<T, n>`, or `buffer<T>{…}`) or assigning
+  its view to an outer-scope local warns; returning a heap buffer, casting to
+  `*T`, or returning `&buf` (`*buffer<T>`) does not warn.
 - Captured closure variables persist until process exit.
 - Global owned values live for the whole process.
 - `free(x)` on an owned dynamic array/string releases it early; later scope
   cleanup will not double-free it.
 - Mutating an array parameter affects only the callee's copy; use `*[]T`/`&a`
-  for shared mutation. Replacing an array through a pointer copies into the
-  owner's storage and must fit its current extent (oversize replacement traps).
+  for shared mutation. Assigning through `*array<T>` replaces the owned storage;
+  assigning an `array<T>` through `*[N]T` traps if the source has fewer than `N`
+  elements (and copies the first `N` elements otherwise).
 
 ---
 
@@ -1878,7 +1893,8 @@ forward-referenced globals. Runtime-sized buffer globals are rejected.
 - Returning from `main` exits with its result (or 0) after waiting for worker
   threads (standard-library `threads`).
 - An unrecovered panic or a fatal runtime error exits with status 1.
-- Traps terminate abnormally (signal), with no Ocean diagnostic.
+- Traps terminate abnormally (signal), with no Ocean diagnostic. On `wasm32`,
+  fatal exits and `recover()` also trap (there is no `setjmp`/`longjmp`).
 
 ### 13.4 Runtime errors
 
@@ -1919,124 +1935,47 @@ executable. File paths are relative to the compiler's working directory.
 
 ## 15. Compilation targets and tools (informative)
 
-- `ocean build [--check|--emit-llvm|--static|-s] [-o out] [location]`,
-  `ocean run [-s] location [args…] [-- literal args]`, `ocean check [location]`,
-  `ocean check --lsp`, `ocean test [locations…]`, `ocean mod init [name]`,
-  `ocean fetch [<url>[@version]]`, `ocean clean --cache`,
-  `ocean fix [locations…]`, `ocean -v|--version`,
+- `ocean build [--check|--emit-llvm|--static|-s] [-ldflags flags] [-o out] [location]`,
+  `ocean run [--static|-s] [-ldflags flags] [location] [args…] [-- literal args]`,
+  `ocean check [location]`, `ocean check --lsp`,
+  `ocean test [locations…] [--json] [--outfile|-o path] [--jsonfile path] [--include-passed|-v] [--timeout dur] [-t n] [--single-threaded] [--notty]`,
+  `ocean mod init [name]`, `ocean fetch [<url>[@version]]`,
+  `ocean clean --cache`, `ocean fix [locations…]`, `ocean -v|--version`,
   `ocean target --list`, `ocean target --sets`,
   `ocean target [--force | --remove] [--<set>...] [<target>...]`.
-- `ocean fetch`:
-  - `ocean fetch <url>[@version]` (where `@version` is `@latest` or a git tag;
-    defaults to `latest` if omitted): clones the remote dependency with git hooks
-    disabled (`-c core.hooksPath=/dev/null`, `GIT_TERMINAL_PROMPT=0`) into
-    `$OCEAN_MOD_CACHE` / `$HOME/.cache/ocean/modules`, adds/updates `ocean.mod`,
-    and records the dependency's deterministic SHA-256 checksum (computed over
-    sorted relative file paths and contents, excluding `.git/`) in `ocean.sum`.
-  - If `<url>` is already declared in `ocean.mod` and no `@version` is passed,
-    fetches the version recorded in `ocean.mod` without altering `ocean.mod`.
-  - Bare `ocean fetch` follows the dependency declarations in the root
-    `ocean.mod` and in each dependency's `ocean.mod`. An explicit fetch follows
-    the selected dependency's declarations. Each module's manifest supplies
-    its own dependency versions and replacements. Only the root project's
-    `ocean.sum` records the checksums of fetched dependencies.
-  - `ocean build`/`check`/`test` verify cached external dependencies against the
-    root project's `ocean.sum` and refuse to compile if any dependency is
-    missing or modified.
-- `ocean fix` rewrites the removed postfix type syntax to prefix syntax in place.
-  A location is a package directory, an Ocean file (its directory), or `dir/...`
-  (every directory below `dir` containing `.oc` files, skipping hidden
-  directories, `vendor`, and `node_modules`); the default is `.`. All `.oc`
-  files of a package are rewritten, including `*_test.oc` and target variants.
-  Each legacy type is replaced by its prefix spelling with the same meaning
-  (`T[a][b]` → `[b][a]T`, `T*[]` → `[]*T`, `buffer<T>[N]` → `buffer<T, N>`,
-  `buffer<T>[]` → `buffer<T>`); text outside rewritten types, including
-  dimension expressions, comments, and spacing, is preserved. Nested legacy
-  types are rewritten by repeating until none remain, so the command is
-  idempotent. Expression-level allocations `T[n]` are rewritten when `T` is a
-  built-in type, a type declared in the package, an exported type of an imported
-  package (resolved locally, without downloading), or an enclosing type
-  parameter; others are left for the type checker to report. Each changed file
-  is reported as `ocean fix: <path>: <n> types rewritten`. Files are replaced
-  atomically; the exit status is nonzero if a file cannot be read or written.
+  `-ldflags "-X importpath.name=value"` sets a package-level string variable.
+- `ocean fetch` downloads declared external dependencies into the module cache
+  and updates `ocean.mod` and `ocean.sum` (§4.3).
+- `ocean fix` rewrites removed postfix type syntax to prefix syntax in place
+  (§3.3).
 - By default, compilation targets the host platform. Setting both `OCOS` and
   `OCARCH` selects an explicit target for `build` and `check`: Linux supports
   `x86_64`, `aarch64`, and `riscv64`; macOS and Windows support `x86_64` and
   `aarch64`; and `OCOS=js OCARCH=wasm` targets `wasm32-unknown-unknown`.
   Executing code via `run` or `test` is restricted to the host target.
-- `ocean target --list` lists available target names along with their `OCOS` and
-  `OCARCH` pairs and whether the available toolchain can compile and link for
-  each target. `ocean target <target>...` downloads and installs managed
-  toolchain components for the specified targets, and
-  `ocean target --remove <target>...` uninstalls them. A target the system
-  toolchain already compiles and links is left uninstalled, because builds
-  without managed components use the system toolchain. macOS targets are the
-  exception: on a Mac with the Command Line Tools and no `OCEAN_MACOS_SDK`,
-  installing one records the Apple SDK, and builds use the Apple toolchain.
-  Elsewhere, including a Mac without the Command Line Tools or with
-  `OCEAN_MACOS_SDK` set, macOS targets use the bundled Clang and `ld64.lld` with
-  a downloaded SDK or the one `OCEAN_MACOS_SDK` names, which must be outside the
-  managed target directory. `--force` installs targets the system toolchain
-  supports anyway, reinstalls targets that are already installed, refreshes the
-  shared host tools, and installs the bundled cross toolchain and macOS SDK even
-  where the Apple toolchain is available. Set flags select groups of targets and
-  may be mixed with target names: `--all` (every target), `--native` (every
-  target except `wasm-js`), `--x86_64` (`--x86`), `--aarch64` (`--arm`,
-  `--arm64`), `--riscv64` (`--riscv`), `--linux`, `--macos` (`--darwin`), and
-  `--windows`. `ocean target --sets` lists the sets and their targets. Explicit
-  target builds automatically pick up these managed components.
-  `OCEAN_TARGET_DIR` overrides the default per-user storage location.
-- Running `build --emit-llvm` for a non-host target emits only the program's
-  LLVM IR, without needing a target runtime. Producing or checking a full
-  binary requires Clang, a compatible linker, and the target's headers and
-  libraries. `OCEAN_CLANG` overrides the Clang executable, and `OCEAN_SYSROOT`
-  specifies an optional native target sysroot.
+- `ocean target` manages cross-compilation toolchains (`--list`, `--sets`,
+  `--force`, `--remove`, and target-set flags such as `--all`, `--native`,
+  `--linux`, `--macos`, `--windows`, `--x86_64`, `--aarch64`, `--riscv64`).
+  `OCEAN_TARGET_DIR` overrides the default per-user storage location, and
+  `OCEAN_MACOS_SDK` selects an external macOS SDK.
+- Running `build --emit-llvm` with an explicit target (`OCOS` and `OCARCH` set)
+  emits only the program's LLVM IR, without needing a target runtime. Producing
+  or checking a full binary requires Clang, a compatible linker, and the target's
+  headers and libraries. `OCEAN_CLANG` overrides the Clang executable, and
+  `OCEAN_SYSROOT` specifies an optional native target sysroot.
 - Additional environment variables: `OCEAN_SRC` (standard library root),
-  `OCEAN_MOD_CACHE`, `OCEAN_BUILD_CACHE` (path or `off`), `NO_COLOR`, and
-  `CLICOLOR_FORCE`.
-- Standard-library intrinsics (`reflect.Fields/IsStruct/IsEnum/EnumVariant`,
-  the private `reflect.varIntegerBytes` helper, `threads.Spawn/Return`,
-  `os.setArgs`) are recognized only when declared in
-  the corresponding package located physically under the standard-library root;
-  calls to the underlying `compilerReflect*`/`compilerThread*` names from any
-  other code are errors. In standard-library `threads`, repeated and concurrent
-  `Await` calls on a worker succeed. The runtime joins the native thread once,
-  and `IsDone` keeps reporting completion for that ID until process shutdown.
-  `Mutex`/`WaitGroup` provide explicit `Destroy()`/`Close()` cleanup. Call them
-  after all threads have finished using the object. Closing an already closed
-  object or calling another operation on it panics.
+  `OCEAN_MOD_CACHE`, `OCEAN_BUILD_CACHE` (path or `off`), `OCEAN_OPT` (Clang
+  optimization level, default `1`), `PKG_CONFIG_LIBDIR` (for cross-target
+  `pkg-config`), `NO_COLOR`, and `CLICOLOR_FORCE`.
 
 ---
 
 ## 16. Implementation notes relevant to compatibility (informative)
 
-- All packages are merged into one program; package-level names are internally
-  qualified (`__pkg<N>_<name>`), externs as `__extern.<file>.<name>`.
-- Struct layout follows the host C ABI (natural alignment and padding); value
+- Struct layout follows the target C ABI (natural alignment and padding); value
   parameters are the first fields. `sizeof([]int)` (dynamic array) is the size
-  of its header reference (8 on 64-bit hosts); `sizeof([N]T)` includes the 8-byte
-  size header.
+  of its header reference (8 on 64-bit targets, 4 on `wasm32`).
 - `int` is 64-bit on every target, including Wasm (where pointers are 32-bit).
 - Parameterized integers lower to LLVM `iN`. Very large widths can take
   substantial compile time and memory, and native code generation for them
   depends on the installed LLVM target.
-
----
-
-## 17. Divergences from other documentation
-
-Verified against the compiler; other docs currently say otherwise:
-
-- `byte` and `rune` are not types (they were removed as built-ins).
-- All type modifiers are prefixes (`[]T`, `[N]T`, `*T`, `buffer<T, N>`); the
-  former postfix syntax is rejected and `ocean fix` migrates it (§3.3, §15).
-- Hexadecimal floats with `p` exponents are not supported.
-- Struct index delegation (`index field;`, `x[]`) has been removed; `index` is an
-  ordinary identifier.
-- Named function declarations nested in function bodies parse but are rejected.
-- `[]T` is a heap-backed **dynamic array** (older README sections describe it as
-  a stack array with a byte-size header; that describes `[N]T` / `array<T>`).
-- Struct fields are not export-controlled across packages.
-- An `int` variable may be combined with a float in arithmetic (`i + 1.5` is
-  `float`), but an `int` variable is not implicitly assignable to `float`.
-- `f32` widens implicitly to `float`. Narrowing to `f32` requires a cast.
