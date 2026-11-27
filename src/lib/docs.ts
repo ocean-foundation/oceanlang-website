@@ -1602,11 +1602,15 @@ export const docs: Doc[] = [
             ],
             [
               "`ocean target --list`",
-              "Show available compilation targets alongside their `OCOS`/`OCARCH` pairs"
+              "Show available compilation targets alongside their `OCOS`/`OCARCH` pairs and toolchain readiness"
             ],
             [
-              "`ocean target [--remove] <target>…`",
-              "Download or uninstall managed toolchain bundles for one or more targets"
+              "`ocean target --sets`",
+              "List target sets, their aliases, and the targets each set selects"
+            ],
+            [
+              "`ocean target [--force | --remove] [--<set>…] [target…]`",
+              "Download, reinstall, or uninstall managed toolchain bundles for targets or target sets"
             ],
             [
               "`ocean mod init [name]`",
@@ -1656,7 +1660,7 @@ export const docs: Doc[] = [
         "text": "For a `main` package, `ocean build` produces an executable named after the package directory, or the name given with `-o`. For any other package it produces a native library object, `<package>.o`, which can be linked into other programs. If compilation or linking fails, the previous output file is left untouched.",
         "code": "",
         "note": "",
-        "after": "Static linking needs static versions of the system libraries (and of libffi or libcurl if your program uses them) to be installed; otherwise the link fails. It only applies to `main` packages.\n\nOn Windows, library objects are emitted as COFF archives. When building against a managed target, Ocean invokes its bundled `llvm-ar`; otherwise it expects `llvm-ar` to be available on your `PATH`.",
+        "after": "Static linking needs static versions of the system libraries (and of libffi or libcurl if your program uses them) to be installed; otherwise the link fails. It only applies to `main` packages.\n\nOn Windows, and when cross-compiling to macOS with the bundled `ld64.lld` linker (which does not support relocatable links), library objects are emitted as indexed archives. When building against a managed target, Ocean invokes its bundled `llvm-ar`; otherwise it expects `llvm-ar` to be available on your `PATH`.",
         "table": {
           "headers": [
             "Option",
@@ -1746,6 +1750,10 @@ export const docs: Doc[] = [
               "Custom absolute path where managed target toolchains are stored"
             ],
             [
+              "`OCEAN_MACOS_SDK`",
+              "Absolute path to a macOS SDK directory or tarball for cross-compiling to macOS, outside the managed target directory (overrides the default downloaded SDK and selects the bundled toolchain on macOS)"
+            ],
+            [
               "`NO_COLOR`, `CLICOLOR_FORCE`",
               "Turn colored diagnostics off or force them on"
             ],
@@ -1766,11 +1774,60 @@ export const docs: Doc[] = [
       {
         "id": "targets",
         "title": "Managing target toolchains",
-        "text": "To see every target Ocean knows about and the `OCOS`/`OCARCH` pair it maps to, run `ocean target --list`. Passing one or more target names downloads and installs their toolchain bundles, skipping any components you already have. Adding `--remove` uninstalls the listed targets.",
-        "code": "ocean target --list\nocean target x86_64-windows riscv64-linux wasm-js\nOCOS=windows OCARCH=x86_64 ocean build -o app.exe .\nocean target --remove x86_64-windows riscv64-linux",
-        "note": "",
+        "text": "To see every target Ocean knows about, its `OCOS`/`OCARCH` pair, and whether a toolchain is ready to build it, run `ocean target --list`. Passing one or more target names or target-set flags downloads and installs their managed toolchain bundles, deduplicating overlaps and skipping targets that are already installed. A target your system toolchain can already compile and link is also skipped, because builds without managed components use the system toolchain; macOS targets work differently, as described below. Adding `--remove` uninstalls the selected targets, and `ocean target --sets` lists all available sets and their aliases.",
+        "code": "ocean target --list\nocean target --sets\nocean target x86_64-windows riscv64-linux wasm-js\nocean target --linux --arm\nocean target --force --native\nOCOS=windows OCARCH=x86_64 ocean build -o app.exe .\nocean target --remove --windows riscv64-linux",
+        "note": "Use of the macOS SDK is subject to the Xcode and Apple SDKs license agreement.",
         "lang": "Terminal",
-        "after": "Behind the scenes, Ocean fetches versioned archives with `curl`, unpacks them with `tar`, and checks their integrity using the system's SHA-256 utility. Linux and Windows bundles come with libffi and libcurl development files ready to link against, though dynamically linked executables still expect the corresponding shared libraries on the machine where they run. On macOS, installing a macOS target relies on Apple's SDK; if it isn't present yet, install it with `xcode-select --install`.\n\nBy default, managed toolchains live in `~/.ocean/targets` on Linux and macOS, or `%LOCALAPPDATA%/Ocean/targets` on Windows. You can relocate them by pointing `OCEAN_TARGET_DIR` to an absolute path. Uninstalling a target keeps the shared host Clang and linker cache intact so other installed targets continue working."
+        "after": "Behind the scenes, Ocean fetches versioned archives with `curl`, unpacks them with `tar`, and verifies their integrity with SHA-256. All targets share one set of host tools (a bundled Clang, LLD linkers, and `llvm-ar` that run on your machine), downloaded once per release and kept separate from any toolchain installed on your system. Linux and Windows bundles add the target's headers and libraries, including libffi and libcurl development files, though dynamically linked executables still expect the corresponding shared libraries on the machine where they run. WebAssembly (`wasm-js`) needs only the host tools: it uses the bundled `clang` and `wasm-ld` when both are present, and falls back to the system toolchain otherwise.\n\nBefore a target becomes visible to builds, Ocean compiles and links a small test program with it, and for Windows and cross-compiled macOS targets also checks `llvm-ar`, so a broken installation is never published. Running `ocean target` again for an installed target restores a missing `wasm-ld` or `ld64.lld` in host tools installed by an earlier release, without downloading anything.\n\nYou can cross-compile to macOS from any host. On a Mac with the Xcode Command Line Tools installed (and `OCEAN_MACOS_SDK` unset), `ocean target` uses the Apple toolchain and local SDK by default. On Linux, Windows, a Mac without the Command Line Tools, or whenever `--force` or `OCEAN_MACOS_SDK` is used, Ocean installs its bundled Clang, `ld64.lld`, and an osxcross-style macOS SDK (`MacOSX15.5.sdk`, verified by SHA-256). To use your own SDK instead of downloading the default one, set `OCEAN_MACOS_SDK` to the absolute path of an SDK directory or tarball (such as one generated by osxcross's `tools/gen_sdk_package.sh`); setting it on a Mac also selects the bundled cross toolchain. The SDK must be outside the managed target directory, because installations there are replaced and removed; to reuse an SDK that Ocean downloaded, copy it elsewhere first.\n\nUse `--force` to install targets even when the system toolchain already handles them, reinstall already-installed targets, refresh the shared host tools once, and force the bundled cross toolchain and macOS SDK even when an Apple SDK is present. During a forced reinstall, the new payload is staged and probed before replacing the existing installation, and the previous installation is restored if the swap fails. If it cannot be restored either, it is kept in a backup directory whose location Ocean reports, rather than deleted. `--force` cannot be combined with `--remove`, and `--list` and `--sets` cannot be combined with other arguments.\n\nBy default, managed toolchains live in `~/.ocean/targets` on Linux and macOS, or `%LOCALAPPDATA%/Ocean/targets` on Windows. You can relocate them by pointing `OCEAN_TARGET_DIR` to an absolute path. Uninstalling a target keeps the shared host Clang and linker cache intact so other installed targets continue working.",
+        "table": {
+          "headers": [
+            "Set",
+            "Aliases",
+            "Targets"
+          ],
+          "rows": [
+            [
+              "`--all`",
+              "—",
+              "Every known target"
+            ],
+            [
+              "`--native`",
+              "—",
+              "Every target except `wasm-js`"
+            ],
+            [
+              "`--x86_64`",
+              "`--x86`",
+              "`x86_64-linux`, `x86_64-macos`, `x86_64-windows`"
+            ],
+            [
+              "`--aarch64`",
+              "`--arm`, `--arm64`",
+              "`aarch64-linux`, `aarch64-macos`, `aarch64-windows`"
+            ],
+            [
+              "`--riscv64`",
+              "`--riscv`",
+              "`riscv64-linux`"
+            ],
+            [
+              "`--linux`",
+              "—",
+              "`x86_64-linux`, `aarch64-linux`, `riscv64-linux`"
+            ],
+            [
+              "`--macos`",
+              "`--darwin`",
+              "`x86_64-macos`, `aarch64-macos`"
+            ],
+            [
+              "`--windows`",
+              "—",
+              "`x86_64-windows`, `aarch64-windows`"
+            ]
+          ]
+        }
       },
       {
         "id": "cross-compilation",
@@ -1824,7 +1881,7 @@ export const docs: Doc[] = [
             ],
             [
               "macOS",
-              "The macOS SDK and a Mach-O linker. On a Mac, `xcode-select --install` installs the Command Line Tools."
+              "The macOS SDK and a Mach-O linker such as `ld64.lld`. On a Mac, `xcode-select --install` installs the Command Line Tools; elsewhere, use `ocean target` or an osxcross toolchain."
             ],
             [
               "Windows",
