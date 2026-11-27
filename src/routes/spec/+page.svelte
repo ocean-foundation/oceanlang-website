@@ -13,7 +13,7 @@
   <div class="doc-breadcrumb"><a href="/docs/">Docs</a><span>/</span>Reference</div>
   <h1>{data.title}</h1>
   <div class="article-meta">
-   <span class="status-dot"></span> Ocean 0.1 <span>·</span> {data.toc.length} sections <span>·</span>
+   {data.toc.length} sections <span>·</span>
    <a href="/SPEC.md">View as Markdown ↗</a>
   </div>
 
@@ -40,7 +40,7 @@
  .spec-article { max-width: 860px; }
  .article-meta a { color: var(--accent); }
 
- .spec-toc { border: 1px solid var(--line); border-radius: 7px; background: var(--raised); padding: 24px 28px; margin-bottom: 45px; }
+ .spec-toc { border: 1px solid var(--line); border-radius: 6px; background: var(--surface); padding: 22px 24px; margin-bottom: 40px; }
  .spec-toc h2 { font: 9px 'IBM Plex Mono', monospace; color: var(--muted); letter-spacing: 1.2px; margin-bottom: 18px; }
  .spec-toc > ol { list-style: none; columns: 2 300px; column-gap: 36px; }
  .spec-toc > ol > li { break-inside: avoid; margin-bottom: 14px; }

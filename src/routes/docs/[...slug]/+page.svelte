@@ -23,7 +23,6 @@
   <h1>{data.doc.title}</h1>
   <p class="doc-lead">{data.doc.description}</p>
   <div class="article-meta">
-   <span class="status-dot"></span> Ocean 0.1 <span>·</span>
    {Math.max(2, Math.ceil(data.doc.sections.map(s=>s.text+' '+(s.after ?? '')).join(' ').split(/\s+/).length / 200))} min read
   </div>
   {#each data.doc.sections as section}

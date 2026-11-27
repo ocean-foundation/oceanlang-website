@@ -188,9 +188,9 @@
 
 <style>
 	.download-page {
-		max-width: 1120px;
+		max-width: 1200px;
 		margin: auto;
-		padding: 64px 6% 96px;
+		padding: 56px 5% 84px;
 	}
 
 	.download-hero {
@@ -198,30 +198,30 @@
 		grid-template-columns: 1fr 1.15fr;
 		gap: 48px;
 		align-items: start;
-		padding-bottom: 56px;
+		padding-bottom: 52px;
 		border-bottom: 1px solid var(--line);
 	}
 
 	.download-intro h1 {
-		font-size: clamp(40px, 4.5vw, 56px);
+		font-size: clamp(36px, 4.2vw, 48px);
 		line-height: 1.12;
-		letter-spacing: -2px;
-		font-weight: 500;
-		margin: 20px 0 18px;
+		letter-spacing: -0.025em;
+		font-weight: 600;
+		margin: 0 0 16px;
 	}
 
 	.download-lead {
 		font-size: 16px;
 		color: var(--muted);
-		line-height: 1.8;
+		line-height: 1.75;
 		max-width: 440px;
 	}
 
 	.recommended-card {
 		border: 1px solid var(--line);
-		border-radius: 8px;
+		border-radius: 6px;
 		background: var(--surface);
-		padding: 28px;
+		padding: 24px;
 	}
 
 	.card-top {
@@ -368,21 +368,14 @@
 	.platform-grid {
 		display: grid;
 		grid-template-columns: repeat(3, minmax(0, 1fr));
-		gap: 16px;
-	}
-
-	.platform-column {
-		border: 1px solid var(--line);
-		border-radius: 7px;
-		background: var(--surface);
-		padding: 22px;
+		gap: 28px;
 	}
 
 	.platform-column h3 {
-		font-size: 16px;
+		font-size: 15px;
 		font-weight: 600;
-		margin-bottom: 16px;
-		padding-bottom: 12px;
+		margin-bottom: 14px;
+		padding-bottom: 10px;
 		border-bottom: 1px solid var(--line);
 	}
 
@@ -402,8 +395,8 @@
 		gap: 12px;
 		padding: 12px 14px;
 		border: 1px solid var(--line);
-		border-radius: 5px;
-		background: var(--bg);
+		border-radius: 6px;
+		background: var(--surface);
 		transition: background 0.15s, border-color 0.15s;
 	}
 
@@ -415,13 +408,13 @@
 
 	.platform-column strong {
 		display: block;
-		font-size: 13px;
+		font-size: 14px;
 		font-weight: 600;
 	}
 
 	.platform-column a span {
 		display: block;
-		font: 10px 'IBM Plex Mono', monospace;
+		font: 11px 'IBM Plex Mono', monospace;
 		color: var(--muted);
 		margin-top: 3px;
 	}
@@ -441,9 +434,9 @@
 	.release-card {
 		display: flex;
 		flex-direction: column;
-		padding: 24px;
+		padding: 22px;
 		border: 1px solid var(--line);
-		border-radius: 7px;
+		border-radius: 6px;
 		background: var(--surface);
 		transition: background 0.15s, border-color 0.15s;
 	}
