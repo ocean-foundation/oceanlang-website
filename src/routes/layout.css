@@ -149,6 +149,12 @@ svg {
 	color: var(--accent);
 }
 
+.brand .wordmark {
+	color: var(--text);
+	width: auto;
+	display: block;
+}
+
 .header-inner nav {
 	display: flex;
 	align-items: center;

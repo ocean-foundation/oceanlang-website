@@ -4,6 +4,7 @@
  import { page } from '$app/state';
  import { docs } from '#lib/docs.ts';
  import Logo from '#lib/components/Logo.svelte';
+ import Wordmark from '#lib/components/Wordmark.svelte';
  let { children } = $props();
  let dark = $state(true);
  let searchOpen = $state(false);
@@ -34,10 +35,10 @@
 <svelte:window onkeydown={keyboard}/>
 <svelte:head><link rel="icon" type="image/svg+xml" href="/favicon.svg?v=waves"/><meta name="theme-color" content={dark ? '#0b1424' : '#f8fafd'}/><meta name="description" content="Ocean is a native programming language with familiar syntax, explicit types, generics, and independent copies of owned collection values. Explore the language and its documentation."/></svelte:head>
 <a class="skip-link" href="#main">Skip to content</a>
-<header class="site-header"><div class="header-inner"><a class="brand" href="/" aria-label="Ocean home"><Logo/><span>ocean</span></a><nav class:mobile-open={menuOpen} aria-label="Main navigation"><a class:active={page.url.pathname.startsWith('/download')} href="/download/" onclick={()=>menuOpen=false}>Download</a><a class:active={page.url.pathname.startsWith('/docs')} href="/docs/" onclick={()=>menuOpen=false}>Documentation</a><a class:active={page.url.pathname.startsWith('/spec')} href="/spec/" onclick={()=>menuOpen=false}>Language Spec</a><a href="/docs/tooling/cli/" onclick={()=>menuOpen=false}>Tooling</a></nav><div class="header-actions"><button class="search-trigger" onclick={()=>searchOpen=true} aria-label="Search documentation"><span>⌕</span><span class="search-label">Search docs</span><kbd>⌘ K</kbd></button><button class="theme-toggle" onclick={toggleTheme} aria-label={dark ? 'Switch to light theme' : 'Switch to dark theme'} title={dark ? 'Switch to light theme' : 'Switch to dark theme'}>{dark ? '☼' : '☾'}</button><button class="mobile-toggle" onclick={()=>menuOpen=!menuOpen} aria-label="Toggle menu" aria-expanded={menuOpen}>☰</button></div></div></header>
+<header class="site-header"><div class="header-inner"><a class="brand" href="/" aria-label="Ocean home"><Logo/><Wordmark/></a><nav class:mobile-open={menuOpen} aria-label="Main navigation"><a class:active={page.url.pathname.startsWith('/download')} href="/download/" onclick={()=>menuOpen=false}>Download</a><a class:active={page.url.pathname.startsWith('/docs')} href="/docs/" onclick={()=>menuOpen=false}>Documentation</a><a class:active={page.url.pathname.startsWith('/spec')} href="/spec/" onclick={()=>menuOpen=false}>Language Spec</a><a href="/docs/tooling/cli/" onclick={()=>menuOpen=false}>Tooling</a></nav><div class="header-actions"><button class="search-trigger" onclick={()=>searchOpen=true} aria-label="Search documentation"><span>⌕</span><span class="search-label">Search docs</span><kbd>⌘ K</kbd></button><button class="theme-toggle" onclick={toggleTheme} aria-label={dark ? 'Switch to light theme' : 'Switch to dark theme'} title={dark ? 'Switch to light theme' : 'Switch to dark theme'}>{dark ? '☼' : '☾'}</button><button class="mobile-toggle" onclick={()=>menuOpen=!menuOpen} aria-label="Toggle menu" aria-expanded={menuOpen}>☰</button></div></div></header>
 {@render children()}
 <footer class="site-footer">
- <a class="brand" href="/"><Logo small/><span>ocean</span></a>
+ <a class="brand" href="/" aria-label="Ocean home"><Logo small/><Wordmark small/></a>
  <p>The Ocean programming language.</p>
  <div>
   <div class="footer-credit"><p>Maintained by Connor Egan</p></div>

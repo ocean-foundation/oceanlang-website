@@ -1,5 +1,6 @@
 <script lang="ts">
 	import Code from '#lib/components/Code.svelte';
+	import Wordmark from '#lib/components/Wordmark.svelte';
 	let selected = $state(0);
 
 	const examples = [
@@ -35,7 +36,10 @@
 <main id="main">
 	<section class="section masthead">
 		<div>
-			<h1>Ocean</h1>
+			<h1>
+				<Wordmark />
+				<span class="sr-only">Ocean</span>
+			</h1>
 			<p class="slogan">
 				A low-level language for the modern age,<br class="desktop-break" />
 				whether it's systems programming or full-stack applications.
@@ -177,11 +181,10 @@
 		padding-block: 80px 76px;
 	}
 
-	.masthead h1 {
-		font-size: clamp(42px, 5vw, 56px);
-		font-weight: 700;
-		letter-spacing: -0.03em;
-		line-height: 1.08;
+	.masthead h1 :global(.wordmark) {
+		display: block;
+		height: clamp(34px, 4.2vw, 48px);
+		width: auto;
 	}
 
 	.slogan {
